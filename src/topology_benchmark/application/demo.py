@@ -1,0 +1,192 @@
+"""Domain-independent HTTP demo for generated multimodal problems."""
+
+import json
+from dataclasses import asdict
+from http import HTTPStatus
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from typing import Protocol
+from urllib.parse import parse_qs, urlparse
+
+from topology_benchmark.core.models import Problem
+
+
+class ProblemProvider[AnswerT](Protocol):
+    """The only capability the demo requires from a benchmark domain."""
+
+    def generate(self, *, seed: int, difficulty: int = 1) -> Problem[AnswerT]: ...
+
+
+class DemoApplication[AnswerT]:
+    """Transport-neutral responses, separated from the HTTP server."""
+
+    def __init__(self, provider: ProblemProvider[AnswerT]) -> None:
+        self._provider = provider
+
+    def problem_json(self, *, seed: int, difficulty: int) -> bytes:
+        problem = self._provider.generate(seed=seed, difficulty=difficulty)
+        return json.dumps(asdict(problem), ensure_ascii=False).encode()
+
+    @staticmethod
+    def index_html() -> bytes:
+        return _INDEX_HTML.encode()
+
+
+def serve_demo[AnswerT](
+    provider: ProblemProvider[AnswerT], *, host: str = "127.0.0.1", port: int = 8000
+) -> None:
+    """Serve the generic viewer until interrupted."""
+
+    application = DemoApplication(provider)
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            parsed = urlparse(self.path)
+            if parsed.path == "/":
+                self._send(HTTPStatus.OK, "text/html; charset=utf-8", application.index_html())
+                return
+            if parsed.path == "/health":
+                self._send(HTTPStatus.OK, "application/json", b'{"status":"ok"}')
+                return
+            if parsed.path == "/api/problem":
+                try:
+                    query = parse_qs(parsed.query)
+                    seed = int(query.get("seed", ["0"])[0])
+                    difficulty = int(query.get("difficulty", ["5"])[0])
+                    body = application.problem_json(seed=seed, difficulty=difficulty)
+                except (TypeError, ValueError) as error:
+                    body = json.dumps({"error": str(error)}).encode()
+                    self._send(HTTPStatus.BAD_REQUEST, "application/json", body)
+                    return
+                self._send(HTTPStatus.OK, "application/json; charset=utf-8", body)
+                return
+            self._send(HTTPStatus.NOT_FOUND, "application/json", b'{"error":"not found"}')
+
+        def _send(self, status: HTTPStatus, media_type: str, body: bytes) -> None:
+            self.send_response(status)
+            self.send_header("Content-Type", media_type)
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, format: str, *args: object) -> None:
+            del format, args
+
+    server = ThreadingHTTPServer((host, port), Handler)
+    print(f"Topology Benchmark demo: http://{host}:{port}")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()
+
+
+_INDEX_HTML = """<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Topology Benchmark Demo</title>
+  <style>
+    :root { color-scheme: light; font: 16px/1.45 system-ui, sans-serif; }
+    body { margin: 0; background: #f4f5f7; color: #17202a; }
+    main { width: min(1100px, calc(100% - 32px)); margin: 24px auto 60px; }
+    header, section { background: white; border: 1px solid #dfe3e8; border-radius: 12px;
+      padding: 18px; margin-bottom: 16px; box-shadow: 0 2px 12px #17202a0d; }
+    h1 { margin: 0 0 12px; font-size: 1.45rem; }
+    h2 { margin: 0; font-size: 1.1rem; }
+    .controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; }
+    label { display: grid; gap: 4px; font-size: .82rem; color: #52606d; }
+    input, button { font: inherit; padding: 8px 11px; border-radius: 7px;
+      border: 1px solid #b8c2cc; background: white; }
+    button { cursor: pointer; background: #174ea6; border-color: #174ea6; color: white; }
+    button.secondary { background: white; color: #174ea6; }
+    #status { margin-left: auto; color: #68737d; font-size: .9rem; }
+    #question { font-size: 1.12rem; }
+    #prompts { display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
+    .prompt { border: 1px solid #dfe3e8; border-radius: 9px; padding: 10px; overflow: auto; }
+    .prompt img { display: block; width: 100%; height: auto; }
+    pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+    .meta { color: #68737d; font: .78rem ui-monospace, monospace; margin-top: 8px; }
+    #answer { background: #f0f7ee; border-color: #a8c7a0; }
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body><main>
+  <header>
+    <h1>Topology Benchmark Demo</h1>
+    <div class="controls">
+      <label>Seed <input id="seed" type="number" value="0"></label>
+      <label>Difficulty <input id="difficulty" type="range" min="1" max="10" value="5">
+        <span id="difficulty-value">5</span></label>
+      <button id="regenerate">New random problem</button>
+      <button id="replay" class="secondary">Replay seed</button>
+      <span id="status"></span>
+    </div>
+  </header>
+  <section><h2>Question</h2><p id="question">Loading…</p>
+    <div id="problem-meta" class="meta"></div></section>
+  <section><h2>Prompt</h2><div id="prompts"></div></section>
+  <section><button id="reveal" class="secondary">Reveal ground truth</button>
+    <pre id="answer" hidden></pre></section>
+</main>
+<script>
+  const byId = id => document.getElementById(id);
+  const objectUrls = [];
+  function clearObjectUrls() { while (objectUrls.length) URL.revokeObjectURL(objectUrls.pop()); }
+  function metadata(value) { return JSON.stringify(value, null, 2); }
+  function renderPrompt(prompt, index) {
+    const card = document.createElement('article'); card.className = 'prompt';
+    const title = document.createElement('strong');
+    title.textContent = `Prompt ${index + 1} · ${prompt.media_type}`;
+    card.append(title);
+    if (prompt.media_type.startsWith('image/')) {
+      const image = document.createElement('img'); image.alt = `Generated prompt ${index + 1}`;
+      if (prompt.content.startsWith('data:')) image.src = prompt.content;
+      else if (prompt.media_type === 'image/svg+xml') {
+        image.src = URL.createObjectURL(new Blob([prompt.content], {type: prompt.media_type}));
+        objectUrls.push(image.src);
+      } else image.src = `data:${prompt.media_type};base64,${prompt.content}`;
+      card.append(image);
+    } else if (prompt.media_type.startsWith('audio/')) {
+      const audio = document.createElement('audio'); audio.controls = true;
+      audio.src = prompt.content.startsWith('data:') ? prompt.content
+        : `data:${prompt.media_type};base64,${prompt.content}`; card.append(audio);
+    } else {
+      const pre = document.createElement('pre'); pre.textContent = prompt.content; card.append(pre);
+    }
+    const meta = document.createElement('pre'); meta.className = 'meta';
+    meta.textContent = metadata(prompt.metadata);
+    card.append(meta); return card;
+  }
+  async function load(randomize) {
+    if (randomize) byId('seed').value = crypto.getRandomValues(new Uint32Array(1))[0];
+    const seed = byId('seed').value, difficulty = byId('difficulty').value;
+    byId('status').textContent = 'Generating…'; byId('answer').hidden = true; clearObjectUrls();
+    try {
+      const endpoint = `/api/problem?seed=${encodeURIComponent(seed)}`
+        + `&difficulty=${difficulty}`;
+      const response = await fetch(endpoint); const problem = await response.json();
+      if (!response.ok) throw new Error(problem.error || response.statusText);
+      byId('question').textContent = problem.question;
+      byId('problem-meta').textContent = metadata({seed: problem.seed, ...problem.metadata});
+      byId('answer').textContent = metadata(problem.answer);
+      byId('prompts').replaceChildren(...problem.prompts.map(renderPrompt));
+      history.replaceState(null, '', `/?seed=${encodeURIComponent(seed)}&difficulty=${difficulty}`);
+      const subject = problem.metadata.subject || 'problem';
+      byId('status').textContent = `${subject} · seed ${problem.seed}`;
+    } catch (error) { byId('status').textContent = error.message; }
+  }
+  byId('difficulty').addEventListener('input', event => {
+    byId('difficulty-value').textContent = event.target.value;
+  });
+  byId('regenerate').addEventListener('click', () => load(true));
+  byId('replay').addEventListener('click', () => load(false));
+  byId('reveal').addEventListener('click', () => byId('answer').hidden = !byId('answer').hidden);
+  const initial = new URLSearchParams(location.search);
+  if (initial.has('seed')) byId('seed').value = initial.get('seed');
+  if (initial.has('difficulty')) byId('difficulty').value = initial.get('difficulty');
+  byId('difficulty-value').textContent = byId('difficulty').value; load(false);
+</script></body></html>"""

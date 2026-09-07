@@ -1,0 +1,49 @@
+[project]
+authors = [{name = "Chshine1", email = "chshine@qq.com"}]
+dependencies = ["lagom>=2.7.7,<3"]
+name = "topology_benchmark"
+requires-python = ">= 3.14"
+version = "0.1.0"
+
+[dependency-groups]
+dev = [
+    "pyrefly>=0.42.0,<0.43",
+    "pytest>=8.4.2,<9",
+    "ruff>=0.12.12,<0.13",
+]
+
+[build-system]
+build-backend = "hatchling.build"
+requires = ["hatchling"]
+
+[tool.pixi.workspace]
+channels = ["conda-forge"]
+platforms = ["win-64"]
+
+[tool.pixi.pypi-dependencies]
+topology_benchmark = { path = ".", editable = true }
+
+[tool.pixi.environments]
+dev = { features = ["dev"], solve-group = "default" }
+
+[tool.pixi.feature.dev.tasks]
+typecheck = "python -m pyrefly check"
+lint = "python -m ruff check ."
+format = "python -m ruff format ."
+format-check = "python -m ruff format --check ."
+test = "python -m pytest"
+check = { depends-on = ["typecheck", "lint", "format-check"] }
+
+[tool.pyrefly]
+project-includes = ["src", "tests"]
+project-excludes = ["**/__pycache__"]
+python-version = "3.14"
+python-interpreter-path = ".pixi/envs/dev/python.exe"
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+target-version = "py314"
+
+[tool.ruff.lint]
+select = ["B", "E", "F", "I", "RUF", "SIM", "UP"]

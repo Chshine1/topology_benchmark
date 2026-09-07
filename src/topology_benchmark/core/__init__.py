@@ -1,0 +1,1 @@
+"""Domain-independent framework types."""
