@@ -10,10 +10,15 @@ if TYPE_CHECKING:
 
 ObjectT = TypeVar("ObjectT")
 AnswerT = TypeVar("AnswerT")
+ContextT = TypeVar("ContextT")
 
 
 class ObjectGenerator(Protocol[ObjectT]):
     def generate(self, request: GenerationRequest, rng: Random) -> ObjectT: ...
+
+
+class ConditionalGenerator[ContextT, ObjectT](Protocol):
+    def generate_for(self, context: ContextT) -> ObjectT: ...
 
 
 class Morphism(Protocol[ObjectT]):

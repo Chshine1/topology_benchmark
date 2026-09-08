@@ -5,8 +5,12 @@ This module re-exports the first-class boundary quotient for a convenient domain
 
 from topology_benchmark.domains.surfaces.models import (
     BoundaryGluingMorphism,
-    EdgeIdentification,
+    EdgeGluing,
     PolygonAttachmentMorphism,
 )
 
-__all__ = ["BoundaryGluingMorphism", "EdgeIdentification", "PolygonAttachmentMorphism"]
+__all__ = [
+    "BoundaryGluingMorphism",
+    "EdgeGluing",
+    "PolygonAttachmentMorphism",
+]

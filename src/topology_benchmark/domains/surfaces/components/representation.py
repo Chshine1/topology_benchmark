@@ -1,128 +1,267 @@
-"""A pure SVG renderer for directed polygon gluings and curved paths."""
+"""Matplotlib SVG adapter for planned polygon-gluing diagrams."""
 
-from html import escape
+import io
 from random import Random
-from typing import ClassVar
+
+from matplotlib import rc_context
+from matplotlib.axes import Axes
+from matplotlib.backends.backend_svg import FigureCanvasSVG
+from matplotlib.figure import Figure
+from matplotlib.patches import FancyArrowPatch
+from matplotlib.patches import Polygon as PolygonPatch
 
 from topology_benchmark.core.models import GenerationRequest, PromptData
-from topology_benchmark.domains.surfaces.analysis import SurfaceAnalyzer
-from topology_benchmark.domains.surfaces.models import EdgeRef, Point, SurfacePresentation
+from topology_benchmark.domains.surfaces.components.display import (
+    DiagramPlan,
+    LinePattern,
+    OrderDisplay,
+    PathCurve,
+    Point,
+    SurfaceDiagramPlanner,
+)
+from topology_benchmark.domains.surfaces.components.rendering_config import (
+    SurfaceRenderingConfig,
+)
+from topology_benchmark.domains.surfaces.models import EdgeRef, SurfacePresentation
 from topology_benchmark.domains.surfaces.ports import SurfaceRepresentation
 
 
-class SvgGluingDiagramRenderer(SurfaceRepresentation):
-    """Render stored parameters only; all random choices belong to generation."""
+class MatplotlibGluingDiagramRenderer(SurfaceRepresentation):
+    """Render a clean, reproducible SVG from a library-neutral diagram plan."""
 
-    _PALETTES: ClassVar[dict[str, tuple[str, str, str]]] = {
-        "ink": ("#f8f5ed", "#263238", "#c62828"),
-        "ocean": ("#e8f4f8", "#164e63", "#be123c"),
-        "clay": ("#fff1e6", "#5d4037", "#1565c0"),
-    }
+    def __init__(self, planner: SurfaceDiagramPlanner, config: SurfaceRenderingConfig) -> None:
+        self._planner = planner
+        self._config = config
 
     def render(
         self, obj: SurfacePresentation, request: GenerationRequest, rng: Random
     ) -> PromptData:
-        del request, rng
-        presentation = obj
-        fill, ink, accent = self._PALETTES[presentation.palette]
-        max_x = max(point.x for polygon in presentation.polygons for point in polygon.vertices)
-        max_y = max(point.y for polygon in presentation.polygons for point in polygon.vertices)
-        width, height = int(max(520.0, max_x + 90)), int(max(330.0, max_y + 80))
-        parts = [
-            f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
-            f'viewBox="0 0 {width} {height}" role="img" aria-label="polygon gluing diagram">',
-            '<defs><marker id="arrow" markerWidth="8" markerHeight="8" '
-            'refX="4" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" '
-            f'fill="{ink}"/></marker></defs>',
-            '<rect width="100%" height="100%" fill="white"/>',
-        ]
-        marks_by_edge = {mark.edge: mark for mark in presentation.marks}
-        for polygon_index, polygon in enumerate(presentation.polygons):
-            points = " ".join(f"{p.x:.1f},{p.y:.1f}" for p in polygon.vertices)
-            parts.append(
-                f'<polygon points="{points}" fill="{fill}" stroke="{ink}" stroke-width="2.5"/>'
+        del rng
+        plan = self._planner.plan(obj, Random((request.seed << 8) ^ 0xA53C9E))
+        figure = Figure(
+            figsize=(plan.width / 72, plan.height / 72),
+            dpi=72,
+            facecolor="white",
+            layout=None,
+        )
+        canvas = FigureCanvasSVG(figure)
+        axes = figure.add_axes((0, 0, 1, 1))
+        self._configure_axes(axes, plan)
+        self._draw_polygons(axes, obj, plan)
+        for curve in plan.curves:
+            self._draw_path_curve(
+                axes,
+                curve,
+                plan.style.path_width,
+                obj.paths[curve.segment.path_index].name,
             )
-            cx = sum(p.x for p in polygon.vertices) / len(polygon.vertices)
-            cy = sum(p.y for p in polygon.vertices) / len(polygon.vertices)
-            parts.append(
-                f'<text x="{cx:.1f}" y="{cy:.1f}" text-anchor="middle" '
-                f'font-family="sans-serif" font-size="15" fill="{ink}">'
-                f"{escape(polygon.name)}</text>"
-            )
-            for edge in range(len(polygon.vertices)):
-                start = polygon.vertices[edge]
-                end = polygon.vertices[(edge + 1) % len(polygon.vertices)]
-                mark = marks_by_edge.get(EdgeRef(polygon_index, edge))
-                if mark is None:
-                    parts.append(
-                        f'<line x1="{start.x:.1f}" y1="{start.y:.1f}" x2="{end.x:.1f}" '
-                        f'y2="{end.y:.1f}" stroke="#777" stroke-width="5" '
-                        'stroke-dasharray="5 5"/>'
-                    )
-                    continue
-                arrow_start, arrow_end = (start, end) if mark.forward else (end, start)
-                parts.append(self._marked_edge(arrow_start, arrow_end, mark.word, ink))
 
-        for path in presentation.paths:
-            p0, p1, p2, p3 = path.controls
-            dash = "" if path.closed else ' stroke-dasharray="7 4"'
-            parts.append(
-                f'<path d="M {p0.x:.1f},{p0.y:.1f} C {p1.x:.1f},{p1.y:.1f} '
-                f'{p2.x:.1f},{p2.y:.1f} {p3.x:.1f},{p3.y:.1f}" fill="none" '
-                f'stroke="{accent}" stroke-width="4"{dash}/>'
+        output = io.StringIO()
+        with rc_context({"svg.hashsalt": f"topology_benchmark:{request.seed}"}):
+            canvas.print_svg(
+                output,
+                metadata={"Date": None, "Creator": "topology_benchmark"},
             )
-            if not path.closed:
-                for point in (p0, p3):
-                    parts.append(
-                        f'<circle cx="{point.x:.1f}" cy="{point.y:.1f}" r="5" fill="white" '
-                        f'stroke="{accent}" stroke-width="3"/>'
-                    )
-            parts.append(
-                f'<text x="{p1.x:.1f}" y="{float(p1.y - 7.0):.1f}" font-family="sans-serif" '
-                f'font-weight="bold" font-size="16" fill="{accent}">{escape(path.name)}</text>'
-            )
-            word = " · ".join(
-                label if exponent == 1 else f"{label}^{exponent}"
-                for label, exponent in path.edge_word
-            )
-            if word:
-                parts.append(
-                    f'<text x="{p1.x:.1f}" y="{float(p1.y + 10.0):.1f}" font-family="sans-serif" '
-                    f'font-size="11" fill="{accent}">{escape(word)}</text>'
-                )
-        basis = ", ".join(SurfaceAnalyzer().cycle_basis(presentation)) or "empty"
-        parts.append(
-            f'<text x="16" y="{height - 36}" font-family="sans-serif" font-size="12" '
-            f'fill="{ink}">Spanning-forest cycle basis: {escape(basis)}</text>'
-        )
-        parts.append(
-            f'<text x="16" y="{height - 18}" font-family="sans-serif" font-size="13" '
-            f'fill="{ink}">Dashed polygon edges are unglued boundary; matching words and '
-            "arrows are glued.</text>"
-        )
-        parts.append("</svg>")
         return PromptData(
-            media_type="image/svg+xml",
-            content="".join(parts),
-            metadata={
-                "representation": "directed-polygon-gluing-diagram",
-                "polygon_count": len(presentation.polygons),
-                "path_count": len(presentation.paths),
-                "deterministic_renderer": True,
+            "image/svg+xml",
+            output.getvalue(),
+            {
+                "representation": "matplotlib-polygon-gluing-diagram",
+                "polygon_count": len(obj.polygons),
+                "path_count": len(obj.paths),
+                "boundary_style": plan.style.boundary_pattern.value,
+                "path_order_styles": ",".join(
+                    curve.style.order_display.value
+                    for curve in plan.curves
+                    if curve.segment.order == 1
+                ),
+                "seeded_renderer": True,
             },
         )
 
     @staticmethod
-    def _marked_edge(start: Point, end: Point, word: str, ink: str) -> str:
-        mx, my = (start.x + end.x) / 2, (start.y + end.y) / 2
-        ax, ay = (2 * start.x + end.x) / 3, (2 * start.y + end.y) / 3
-        bx, by = (start.x + 2 * end.x) / 3, (start.y + 2 * end.y) / 3
+    def _configure_axes(axes: Axes, plan: DiagramPlan) -> None:
+        axes.set_xlim(0, plan.width)
+        axes.set_ylim(plan.height, 0)
+        axes.set_aspect("equal", adjustable="box")
+        axes.set_axis_off()
+
+    def _draw_polygons(self, axes: Axes, surface: SurfacePresentation, plan: DiagramPlan) -> None:
+        ink = plan.style.palette.ink
+        for polygon, layout in zip(surface.polygons, plan.polygons, strict=True):
+            axes.add_patch(
+                PolygonPatch(
+                    layout.vertices,
+                    closed=True,
+                    facecolor=plan.style.palette.fill,
+                    edgecolor="none",
+                    zorder=1,
+                )
+            )
+            axes.scatter(
+                [point[0] for point in layout.vertices],
+                [point[1] for point in layout.vertices],
+                s=self._config.stroke.vertex_size,
+                color=ink,
+                zorder=4,
+            )
+            axes.text(
+                *layout.center,
+                polygon.name,
+                color=ink,
+                fontsize=self._config.labels.polygon_size,
+                ha="center",
+                va="center",
+                zorder=2,
+            )
+
+        marked = {
+            edge: (gluing, other)
+            for gluing in surface.gluings
+            for edge, other in ((gluing.first, gluing.second), (gluing.second, gluing.first))
+        }
+        for polygon_index, polygon in enumerate(surface.polygons):
+            layout = plan.polygons[polygon_index]
+            for side in range(polygon.sides):
+                edge = EdgeRef(polygon_index, side)
+                start, end = layout.edge(side)
+                pattern = self._planner.edge_pattern(surface, edge, plan.style.boundary_pattern)
+                line_style: str | tuple[int, tuple[float, ...]] = (
+                    "-" if pattern is LinePattern.SOLID else (0, self._config.stroke.dotted_pattern)
+                )
+                axes.plot(
+                    (start[0], end[0]),
+                    (start[1], end[1]),
+                    color=ink,
+                    linewidth=plan.style.polygon_width,
+                    linestyle=line_style,
+                    solid_capstyle="round",
+                    dash_capstyle="round",
+                    zorder=3,
+                )
+                gluing_mark = marked.get(edge)
+                if gluing_mark is None:
+                    continue
+                gluing, _ = gluing_mark
+                forward = edge == gluing.first or gluing.same_direction
+                self._arrows(
+                    axes,
+                    (start, end) if forward else (end, start),
+                    ink,
+                    1,
+                    self._config.arrows.gluing_size,
+                )
+                midpoint = ((start[0] + end[0]) / 2, (start[1] + end[1]) / 2)
+                outward = self._unit(midpoint[0] - layout.center[0], midpoint[1] - layout.center[1])
+                axes.text(
+                    midpoint[0] + self._config.labels.gluing_offset * outward[0],
+                    midpoint[1] + self._config.labels.gluing_offset * outward[1],
+                    gluing.label,
+                    color=ink,
+                    fontsize=self._config.labels.gluing_size,
+                    fontweight="bold",
+                    ha="center",
+                    va="center",
+                    zorder=6,
+                )
+
+    def _draw_path_curve(self, axes: Axes, curve: PathCurve, width: float, path_name: str) -> None:
+        x_values, y_values = zip(*curve.points, strict=True)
+        axes.plot(
+            x_values,
+            y_values,
+            color=curve.style.color,
+            linewidth=width,
+            solid_capstyle="round",
+            zorder=5,
+        )
+        arrow_count = (
+            curve.segment.order if curve.style.order_display is OrderDisplay.ARROW_COUNT else 1
+        )
+        self._arrows(
+            axes,
+            curve.points,
+            curve.style.color,
+            arrow_count,
+            self._config.arrows.path_size,
+        )
+        if curve.style.order_display is OrderDisplay.NUMBER_TAG:
+            if curve.tag_position is None:
+                raise ValueError("a numbered path curve needs a planned tag position")
+            axes.text(
+                *curve.tag_position,
+                str(curve.segment.order),
+                color=curve.style.color,
+                fontsize=self._config.labels.order_size,
+                fontweight="bold",
+                ha="center",
+                va="center",
+                bbox={
+                    "boxstyle": "circle,pad=0.22",
+                    "facecolor": "white",
+                    "edgecolor": curve.style.color,
+                    "linewidth": 1.2,
+                },
+                zorder=8,
+            )
+        if curve.segment.order == 1:
+            if curve.name_position is None:
+                raise ValueError("a path's first curve needs a planned name position")
+            axes.text(
+                *curve.name_position,
+                path_name,
+                color=curve.style.color,
+                fontsize=self._config.labels.path_size,
+                ha="center",
+                va="center",
+                fontstyle="italic",
+                fontweight="bold",
+                zorder=8,
+            )
+
+    def _arrows(
+        self,
+        axes: Axes,
+        curve: tuple[Point, ...],
+        color: str,
+        count: int,
+        mutation_scale: float,
+    ) -> None:
+        for index in range(count):
+            start = self._config.arrows.spread_start
+            end = self._config.arrows.spread_end
+            fraction = (
+                (start + end) / 2 if count == 1 else start + index * (end - start) / (count - 1)
+            )
+            span = self._config.arrows.tangent_span
+            previous = self._point_at_fraction(curve, max(0.0, fraction - span))
+            point = self._point_at_fraction(curve, min(1.0, fraction + span))
+            axes.add_patch(
+                FancyArrowPatch(
+                    previous,
+                    point,
+                    arrowstyle="-|>",
+                    mutation_scale=mutation_scale,
+                    color=color,
+                    linewidth=0,
+                    shrinkA=0,
+                    shrinkB=0,
+                    zorder=7,
+                )
+            )
+
+    @staticmethod
+    def _point_at_fraction(curve: tuple[Point, ...], fraction: float) -> Point:
+        position = fraction * (len(curve) - 1)
+        lower = min(len(curve) - 2, int(position))
+        local = position - lower
+        start, end = curve[lower], curve[lower + 1]
         return (
-            f'<line x1="{ax:.1f}" y1="{ay:.1f}" x2="{bx:.1f}" y2="{by:.1f}" '
-            f'stroke="{ink}" stroke-width="2" marker-end="url(#arrow)"/>'
-            f'<text x="{mx:.1f}" y="{float(my - 7.0):.1f}" text-anchor="middle" '
-            f'font-family="sans-serif" font-size="12" fill="{ink}">{escape(word)}</text>'
+            start[0] + (end[0] - start[0]) * local,
+            start[1] + (end[1] - start[1]) * local,
         )
 
-
-PolygonWordRepresentation = SvgGluingDiagramRenderer
+    @staticmethod
+    def _unit(x: float, y: float) -> Point:
+        length = max(1e-9, (x * x + y * y) ** 0.5)
+        return x / length, y / length

@@ -16,8 +16,19 @@ def main() -> None:
     parser.add_argument("--serve", action="store_true", help="run the local visual demo")
     parser.add_argument("--host", default="127.0.0.1", help="demo bind address")
     parser.add_argument("--port", type=int, default=8000, help="demo TCP port")
+    parser.add_argument(
+        "--rendering-config",
+        help="YAML file layered over the default surface rendering configuration",
+    )
+    parser.add_argument(
+        "--generation-config",
+        help="YAML file layered over the default surface generation profile",
+    )
     args = parser.parse_args()
-    benchmark = build_container().resolve(SurfaceBenchmark)
+    benchmark = build_container(
+        rendering_config=args.rendering_config,
+        generation_config=args.generation_config,
+    ).resolve(SurfaceBenchmark)
     if args.serve:
         serve_demo(benchmark, host=args.host, port=args.port)
         return

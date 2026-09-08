@@ -1,29 +1,15 @@
-"""Derive topology from polygon quotients; no classification data is stored on objects."""
+"""Topology and cellular homology derived from polygon edge gluings."""
 
 from dataclasses import dataclass
+from math import gcd
 
 from topology_benchmark.domains.surfaces.models import (
-    DirectedEdgeMark,
+    EdgeGluing,
     EdgeRef,
-    PathDrawing,
+    SurfacePath,
     SurfacePresentation,
 )
-
-
-class _DisjointSet:
-    def __init__(self, size: int) -> None:
-        self.parent = list(range(size))
-
-    def find(self, item: int) -> int:
-        while self.parent[item] != item:
-            self.parent[item] = self.parent[self.parent[item]]
-            item = self.parent[item]
-        return item
-
-    def union(self, first: int, second: int) -> None:
-        first_root, second_root = self.find(first), self.find(second)
-        if first_root != second_root:
-            self.parent[second_root] = first_root
+from topology_benchmark.utils import DisjointSet
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,112 +43,162 @@ class SurfaceFacts:
         return sum(component.boundary_components for component in self.components)
 
 
+@dataclass(frozen=True, slots=True)
+class CellularHomology:
+    """An explicit presentation of H1 plus its Smith invariants.
+
+    ``cycle_basis`` is the fundamental-cycle basis of ker(d1), ``relations``
+    are the columns of d2 in that basis, and ``smith_diagonal`` classifies the
+    quotient. This also gives unambiguous coordinates for every edge-path.
+    """
+
+    edge_basis: tuple[EdgeRef, ...]
+    cycle_basis: tuple[str, ...]
+    relations: tuple[tuple[int, ...], ...]
+    smith_diagonal: tuple[int, ...]
+    smith_basis: tuple[tuple[int, ...], ...]
+    smith_coordinate_map: tuple[tuple[int, ...], ...]
+    h0_rank: int
+    h1_rank: int
+    h1_torsion: tuple[int, ...]
+    h2_rank: int
+
+
 class SurfaceAnalyzer:
-    """Analyze the finite CW complex induced by the edge identifications."""
-
     def analyze(self, surface: SurfacePresentation) -> SurfaceFacts:
-        offsets = self._vertex_offsets(surface)
-        vertex_dsu = _DisjointSet(offsets[-1])
-        polygon_dsu = _DisjointSet(len(surface.polygons))
-        pairs = self._mark_pairs(surface)
-        for first, second in pairs.values():
-            polygon_dsu.union(first.edge.polygon, second.edge.polygon)
-            first_start, first_end = self._arrow_vertices(surface, offsets, first)
-            second_start, second_end = self._arrow_vertices(surface, offsets, second)
-            vertex_dsu.union(first_start, second_start)
-            vertex_dsu.union(first_end, second_end)
-
-        self._validate_vertex_links(surface, offsets, vertex_dsu, pairs)
-
-        polygon_groups: dict[int, list[int]] = {}
+        offsets, vertex_dsu, polygon_dsu = self._quotient(surface)
+        self._validate_vertex_links(surface, vertex_dsu)
+        groups: dict[int, list[int]] = {}
         for polygon in range(len(surface.polygons)):
-            polygon_groups.setdefault(polygon_dsu.find(polygon), []).append(polygon)
-
-        component_facts = []
-        for polygon_indices in polygon_groups.values():
-            component_facts.append(
-                self._component_facts(surface, offsets, vertex_dsu, pairs, tuple(polygon_indices))
+            groups.setdefault(polygon_dsu.find(polygon), []).append(polygon)
+        components = tuple(
+            sorted(
+                (
+                    self._component_facts(surface, offsets, vertex_dsu, tuple(group))
+                    for group in groups.values()
+                ),
+                key=lambda facts: facts.polygons[0],
             )
-        component_facts.sort(key=lambda facts: facts.polygons[0])
-        vertex_roots = {vertex_dsu.find(vertex) for vertex in range(offsets[-1])}
-        total_edges = sum(len(polygon.vertices) for polygon in surface.polygons) - len(pairs)
-        return SurfaceFacts(
-            tuple(component_facts), len(vertex_roots), total_edges, len(surface.polygons)
+        )
+        vertices = {vertex_dsu.find(vertex) for vertex in range(offsets[-1])}
+        edges = sum(polygon.sides for polygon in surface.polygons) - len(surface.gluings)
+        return SurfaceFacts(components, len(vertices), edges, len(surface.polygons))
+
+    def cellular_homology(self, surface: SurfacePresentation) -> CellularHomology:
+        facts = self.analyze(surface)
+        offsets, vertex_dsu, _ = self._quotient(surface)
+        edge_basis, occurrence = self._quotient_edges(surface)
+        vertex_roots = sorted({vertex_dsu.find(vertex) for vertex in range(offsets[-1])})
+        vertex_index = {root: index for index, root in enumerate(vertex_roots)}
+
+        endpoints: list[tuple[int, int]] = []
+        for edge in edge_basis:
+            start, end = surface.native_edge_vertices(edge, offsets)
+            endpoints.append(
+                (vertex_index[vertex_dsu.find(start)], vertex_index[vertex_dsu.find(end)])
+            )
+
+        forest = DisjointSet(len(vertex_roots))
+        chords: list[int] = []
+        for index, (start, end) in enumerate(endpoints):
+            if not forest.union(start, end):
+                chords.append(index)
+        # In a graph, chord coefficients are coordinates in its fundamental-cycle basis.
+        cycle_basis = tuple(self._edge_name(edge_basis[index]) for index in chords)
+        relations: list[tuple[int, ...]] = []
+        for polygon_index, polygon in enumerate(surface.polygons):
+            chain = [0] * len(edge_basis)
+            for side in range(polygon.sides):
+                quotient_edge, sign = occurrence[EdgeRef(polygon_index, side)]
+                chain[quotient_edge] += sign
+            relations.append(tuple(chain[index] for index in chords))
+
+        relation_matrix = [list(row) for row in zip(*relations, strict=False)]
+        smith, coordinate_map = self._smith_normal_form(relation_matrix, len(chords))
+        inverse_map = self._unimodular_inverse(coordinate_map)
+        smith_basis = tuple(tuple(column) for column in zip(*inverse_map, strict=False))
+        nonzero = tuple(value for value in smith if value)
+        torsion = tuple(value for value in nonzero if value > 1)
+        h1_rank = len(chords) - len(nonzero)
+        return CellularHomology(
+            tuple(edge_basis),
+            cycle_basis,
+            tuple(relations),
+            smith,
+            smith_basis,
+            coordinate_map,
+            len(facts.components),
+            h1_rank,
+            torsion,
+            sum(c.orientable and c.boundary_components == 0 for c in facts.components),
         )
 
-    def path_is_cycle(self, surface: SurfacePresentation, path: PathDrawing) -> bool:
-        del surface
-        # A signed edge word denotes based edge loops: the deterministic spanning
-        # forest supplies the routes from the base vertex to each marked edge.
-        return path.closed
+    def path_is_cycle(self, surface: SurfacePresentation, path: SurfacePath) -> bool:
+        quotient = surface._quotient_vertices()
+        return surface._path_endpoint(path.edges[0], True, quotient) == surface._path_endpoint(
+            path.edges[-1], False, quotient
+        )
 
     def path_representative(
-        self, surface: SurfacePresentation, path: PathDrawing
+        self, surface: SurfacePresentation, path: SurfacePath
     ) -> tuple[int, ...]:
-        basis = self.cycle_basis(surface)
-        coefficients = dict.fromkeys(basis, 0)
-        for word, coefficient in path.edge_word:
-            if word in coefficients:
-                coefficients[word] += coefficient
-        return tuple(coefficients[label] for label in basis)
+        if not self.path_is_cycle(surface, path):
+            raise ValueError("an open path has no homology class")
+        homology = self.cellular_homology(surface)
+        _, occurrence = self._quotient_edges(surface)
+        chord_indices = [
+            homology.edge_basis.index(self._parse_edge_name(name)) for name in homology.cycle_basis
+        ]
+        chain = [0] * len(homology.edge_basis)
+        for directed in path.edges:
+            index, sign = occurrence[directed.edge]
+            chain[index] += sign if directed.forward else -sign
+        return tuple(chain[index] for index in chord_indices)
+
+    def path_homology_class(
+        self, surface: SurfacePresentation, path: SurfacePath
+    ) -> tuple[int, ...]:
+        """Return path coordinates in the Smith basis, reducing torsion entries."""
+
+        cycle = self.path_representative(surface, path)
+        homology = self.cellular_homology(surface)
+        smith = tuple(
+            sum(row[column] * cycle[column] for column in range(len(cycle)))
+            for row in homology.smith_coordinate_map
+        )
+        return tuple(
+            0 if diagonal == 1 else value % diagonal if diagonal > 1 else value
+            for value, diagonal in zip(
+                smith,
+                (
+                    *homology.smith_diagonal,
+                    *(0 for _ in range(len(smith) - len(homology.smith_diagonal))),
+                ),
+                strict=True,
+            )
+        )
 
     def cycle_basis(self, surface: SurfacePresentation) -> tuple[str, ...]:
-        """Return a deterministic fundamental-cycle basis of the quotient 1-skeleton."""
-
-        offsets = self._vertex_offsets(surface)
-        vertex_dsu = _DisjointSet(offsets[-1])
-        pairs = self._mark_pairs(surface)
-        for first, second in pairs.values():
-            first_start, first_end = self._arrow_vertices(surface, offsets, first)
-            second_start, second_end = self._arrow_vertices(surface, offsets, second)
-            vertex_dsu.union(first_start, second_start)
-            vertex_dsu.union(first_end, second_end)
-        vertex_roots = sorted({vertex_dsu.find(vertex) for vertex in range(offsets[-1])})
-        indices = {root: index for index, root in enumerate(vertex_roots)}
-        graph_dsu = _DisjointSet(len(vertex_roots))
-        edges: list[tuple[str, int, int]] = []
-        for word, pair in pairs.items():
-            start, end = self._arrow_vertices(surface, offsets, pair[0])
-            edges.append((word, indices[vertex_dsu.find(start)], indices[vertex_dsu.find(end)]))
-        for edge in surface.unmarked_edges:
-            sides = len(surface.polygons[edge.polygon].vertices)
-            start = offsets[edge.polygon] + edge.edge
-            end = offsets[edge.polygon] + (edge.edge + 1) % sides
-            edges.append(
-                (
-                    f"boundary:{edge.polygon}:{edge.edge}",
-                    indices[vertex_dsu.find(start)],
-                    indices[vertex_dsu.find(end)],
-                )
-            )
-        basis = []
-        for name, start, end in sorted(edges):
-            if graph_dsu.find(start) == graph_dsu.find(end):
-                basis.append(name)
-            else:
-                graph_dsu.union(start, end)
-        return tuple(basis)
+        return self.cellular_homology(surface).cycle_basis
 
     def _component_facts(
         self,
         surface: SurfacePresentation,
         offsets: tuple[int, ...],
-        vertex_dsu: _DisjointSet,
-        pairs: dict[str, tuple[DirectedEdgeMark, DirectedEdgeMark]],
+        vertex_dsu: DisjointSet,
         polygons: tuple[int, ...],
     ) -> ComponentFacts:
         polygon_set = set(polygons)
         vertices = {
-            vertex_dsu.find(offsets[p] + vertex)
+            vertex_dsu.find(offsets[p] + v)
             for p in polygons
-            for vertex in range(len(surface.polygons[p].vertices))
+            for v in range(surface.polygons[p].sides)
         }
-        unmarked = [edge for edge in surface.unmarked_edges if edge.polygon in polygon_set]
-        boundary_count = self._boundary_count(surface, offsets, vertex_dsu, unmarked)
-        paired_edges = sum(pair[0].edge.polygon in polygon_set for pair in pairs.values())
-        edge_count = paired_edges + len(unmarked)
-        chi = len(vertices) - edge_count + len(polygons)
-        orientable = self._is_orientable(pairs, polygon_set)
+        boundary = [edge for edge in surface.unglued_edges if edge.polygon in polygon_set]
+        boundary_count = self._boundary_count(surface, offsets, vertex_dsu, boundary)
+        paired = sum(gluing.first.polygon in polygon_set for gluing in surface.gluings)
+        chi = len(vertices) - paired - len(boundary) + len(polygons)
+        orientable = self._is_orientable(surface.gluings, polygon_set)
         numerator = 2 - boundary_count - chi
         if orientable:
             if numerator < 0 or numerator % 2:
@@ -174,52 +210,62 @@ class SurfaceAnalyzer:
             genus = numerator
         return ComponentFacts(polygons, orientable, chi, boundary_count, genus)
 
+    def _quotient(
+        self, surface: SurfacePresentation
+    ) -> tuple[tuple[int, ...], DisjointSet, DisjointSet]:
+        offsets = surface.vertex_offsets()
+        vertices = DisjointSet(offsets[-1])
+        polygons = DisjointSet(len(surface.polygons))
+        for gluing in surface.gluings:
+            polygons.union(gluing.first.polygon, gluing.second.polygon)
+            a0, a1 = surface.native_edge_vertices(gluing.first, offsets)
+            b0, b1 = surface.native_edge_vertices(gluing.second, offsets)
+            if gluing.same_direction:
+                vertices.union(a0, b0)
+                vertices.union(a1, b1)
+            else:
+                vertices.union(a0, b1)
+                vertices.union(a1, b0)
+        return offsets, vertices, polygons
+
     @staticmethod
     def _boundary_count(
         surface: SurfacePresentation,
         offsets: tuple[int, ...],
-        vertex_dsu: _DisjointSet,
-        unmarked: list[EdgeRef],
+        vertices: DisjointSet,
+        edges: list[EdgeRef],
     ) -> int:
-        if not unmarked:
+        if not edges:
             return 0
         roots = sorted(
             {
-                vertex_dsu.find(offsets[edge.polygon] + endpoint)
-                for edge in unmarked
-                for endpoint in (
-                    edge.edge,
-                    (edge.edge + 1) % len(surface.polygons[edge.polygon].vertices),
-                )
+                vertices.find(v)
+                for edge in edges
+                for v in surface.native_edge_vertices(edge, offsets)
             }
         )
-        root_index = {root: index for index, root in enumerate(roots)}
-        boundary_dsu = _DisjointSet(len(roots))
+        index = {root: i for i, root in enumerate(roots)}
+        components = DisjointSet(len(roots))
         degree = dict.fromkeys(roots, 0)
-        for edge in unmarked:
-            sides = len(surface.polygons[edge.polygon].vertices)
-            start = vertex_dsu.find(offsets[edge.polygon] + edge.edge)
-            end = vertex_dsu.find(offsets[edge.polygon] + (edge.edge + 1) % sides)
-            boundary_dsu.union(root_index[start], root_index[end])
-            degree[start] += 1
-            degree[end] += 1
+        for edge in edges:
+            a, b = (vertices.find(v) for v in surface.native_edge_vertices(edge, offsets))
+            components.union(index[a], index[b])
+            degree[a] += 1
+            degree[b] += 1
         if any(value != 2 for value in degree.values()):
             raise ValueError("unglued edges do not form boundary circles")
-        return len({boundary_dsu.find(index) for index in range(len(roots))})
+        return len({components.find(i) for i in range(len(roots))})
 
     @staticmethod
-    def _is_orientable(
-        pairs: dict[str, tuple[DirectedEdgeMark, DirectedEdgeMark]], polygons: set[int]
-    ) -> bool:
-        signs: dict[int, int] = {}
-        adjacency: dict[int, list[tuple[int, int]]] = {polygon: [] for polygon in polygons}
-        for first, second in pairs.values():
-            if first.edge.polygon not in polygons:
+    def _is_orientable(gluings: tuple[EdgeGluing, ...], polygons: set[int]) -> bool:
+        adjacency: dict[int, list[tuple[int, int]]] = {p: [] for p in polygons}
+        for gluing in gluings:
+            if gluing.first.polygon not in polygons:
                 continue
-            native_direction = 1 if first.forward == second.forward else -1
-            relation = -native_direction
-            adjacency[first.edge.polygon].append((second.edge.polygon, relation))
-            adjacency[second.edge.polygon].append((first.edge.polygon, relation))
+            relation = -1 if gluing.same_direction else 1
+            adjacency[gluing.first.polygon].append((gluing.second.polygon, relation))
+            adjacency[gluing.second.polygon].append((gluing.first.polygon, relation))
+        signs: dict[int, int] = {}
         for start in polygons:
             if start in signs:
                 continue
@@ -237,83 +283,248 @@ class SurfaceAnalyzer:
         return True
 
     @staticmethod
-    def _validate_vertex_links(
-        surface: SurfacePresentation,
-        offsets: tuple[int, ...],
-        vertex_dsu: _DisjointSet,
-        pairs: dict[str, tuple[DirectedEdgeMark, DirectedEdgeMark]],
-    ) -> None:
+    def _validate_vertex_links(surface: SurfacePresentation, vertex_dsu: DisjointSet) -> None:
+        offsets = surface.vertex_offsets()
         edge_offsets = [0]
         for polygon in surface.polygons:
-            edge_offsets.append(edge_offsets[-1] + len(polygon.vertices))
-        link_dsu = _DisjointSet(2 * edge_offsets[-1])
-
-        def link_endpoint(mark: DirectedEdgeMark, arrow_start: bool) -> int:
-            native_start = arrow_start == mark.forward
-            occurrence = edge_offsets[mark.edge.polygon] + mark.edge.edge
-            return 2 * occurrence + (0 if native_start else 1)
-
-        for first, second in pairs.values():
-            link_dsu.union(link_endpoint(first, True), link_endpoint(second, True))
-            link_dsu.union(link_endpoint(first, False), link_endpoint(second, False))
-
-        links_by_vertex: dict[int, list[tuple[int, int]]] = {}
-        for polygon_index, polygon in enumerate(surface.polygons):
-            sides = len(polygon.vertices)
-            for corner in range(sides):
-                previous = edge_offsets[polygon_index] + (corner - 1) % sides
-                following = edge_offsets[polygon_index] + corner
-                first = link_dsu.find(2 * previous + 1)
-                second = link_dsu.find(2 * following)
-                vertex = vertex_dsu.find(offsets[polygon_index] + corner)
-                links_by_vertex.setdefault(vertex, []).append((first, second))
-
-        for segments in links_by_vertex.values():
+            edge_offsets.append(edge_offsets[-1] + polygon.sides)
+        links = DisjointSet(2 * edge_offsets[-1])
+        for gluing in surface.gluings:
+            for at_start in (True, False):
+                a = 2 * (edge_offsets[gluing.first.polygon] + gluing.first.edge) + (
+                    0 if at_start else 1
+                )
+                b_start = at_start if gluing.same_direction else not at_start
+                b = 2 * (edge_offsets[gluing.second.polygon] + gluing.second.edge) + (
+                    0 if b_start else 1
+                )
+                links.union(a, b)
+        by_vertex: dict[int, list[tuple[int, int]]] = {}
+        for p, polygon in enumerate(surface.polygons):
+            for corner in range(polygon.sides):
+                previous = edge_offsets[p] + (corner - 1) % polygon.sides
+                following = edge_offsets[p] + corner
+                by_vertex.setdefault(vertex_dsu.find(offsets[p] + corner), []).append(
+                    (links.find(2 * previous + 1), links.find(2 * following))
+                )
+        for segments in by_vertex.values():
             adjacency: dict[int, list[int]] = {}
             degree: dict[int, int] = {}
-            for first, second in segments:
-                adjacency.setdefault(first, []).append(second)
-                adjacency.setdefault(second, []).append(first)
-                degree[first] = degree.get(first, 0) + 1
-                degree[second] = degree.get(second, 0) + 1
-            start = next(iter(adjacency))
-            reached = {start}
-            stack = [start]
+            for a, b in segments:
+                adjacency.setdefault(a, []).append(b)
+                adjacency.setdefault(b, []).append(a)
+                degree[a] = degree.get(a, 0) + 1
+                degree[b] = degree.get(b, 0) + 1
+            reached = {next(iter(adjacency))}
+            stack = list(reached)
             while stack:
-                current = stack.pop()
-                for neighbor in adjacency[current]:
+                for neighbor in adjacency[stack.pop()]:
                     if neighbor not in reached:
                         reached.add(neighbor)
                         stack.append(neighbor)
-            degrees = sorted(degree.values())
-            circle = all(value == 2 for value in degrees)
-            interval = degrees.count(1) == 2 and all(value in (1, 2) for value in degrees)
-            if len(reached) != len(adjacency) or not (circle or interval):
+            values = sorted(degree.values())
+            if len(reached) != len(adjacency) or not (
+                all(v == 2 for v in values)
+                or (values.count(1) == 2 and all(v in (1, 2) for v in values))
+            ):
                 raise ValueError("a quotient vertex has a non-manifold link")
 
     @staticmethod
-    def _vertex_offsets(surface: SurfacePresentation) -> tuple[int, ...]:
-        offsets = [0]
-        for polygon in surface.polygons:
-            offsets.append(offsets[-1] + len(polygon.vertices))
-        return tuple(offsets)
+    def _quotient_edges(
+        surface: SurfacePresentation,
+    ) -> tuple[list[EdgeRef], dict[EdgeRef, tuple[int, int]]]:
+        paired: dict[EdgeRef, tuple[EdgeRef, int]] = {}
+        for gluing in surface.gluings:
+            sign = 1 if gluing.same_direction else -1
+            paired[gluing.first] = (gluing.second, sign)
+            paired[gluing.second] = (gluing.first, sign)
+        basis: list[EdgeRef] = []
+        occurrence: dict[EdgeRef, tuple[int, int]] = {}
+        for p, polygon in enumerate(surface.polygons):
+            for side in range(polygon.sides):
+                edge = EdgeRef(p, side)
+                if edge in occurrence:
+                    continue
+                index = len(basis)
+                basis.append(edge)
+                occurrence[edge] = (index, 1)
+                if edge in paired:
+                    mate, sign = paired[edge]
+                    occurrence[mate] = (index, sign)
+        return basis, occurrence
 
     @staticmethod
-    def _mark_pairs(
-        surface: SurfacePresentation,
-    ) -> dict[str, tuple[DirectedEdgeMark, DirectedEdgeMark]]:
-        occurrences: dict[str, list[DirectedEdgeMark]] = {}
-        for mark in surface.marks:
-            occurrences.setdefault(mark.word, []).append(mark)
-        return {word: (marks[0], marks[1]) for word, marks in occurrences.items()}
+    def _smith_invariants(
+        relations: tuple[tuple[int, ...], ...], dimension: int
+    ) -> tuple[int, ...]:
+        """Smith factors via determinantal divisors (small benchmark matrices)."""
+        if not relations or dimension == 0:
+            return ()
+        matrix = [list(row) for row in zip(*relations, strict=False)]  # cycle rank x faces
+        rank = SurfaceAnalyzer._rational_rank(matrix)
+        if rank == 0:
+            return ()
+        divisors = [1]
+        from itertools import combinations
+
+        for size in range(1, rank + 1):
+            value = 0
+            for rows in combinations(range(len(matrix)), size):
+                for cols in combinations(range(len(matrix[0])), size):
+                    value = gcd(
+                        value,
+                        abs(SurfaceAnalyzer._det([[matrix[r][c] for c in cols] for r in rows])),
+                    )
+            divisors.append(value)
+        return tuple(divisors[i] // divisors[i - 1] for i in range(1, len(divisors)))
 
     @staticmethod
-    def _arrow_vertices(
-        surface: SurfacePresentation,
-        offsets: tuple[int, ...],
-        mark: DirectedEdgeMark,
-    ) -> tuple[int, int]:
-        sides = len(surface.polygons[mark.edge.polygon].vertices)
-        native_start = offsets[mark.edge.polygon] + mark.edge.edge
-        native_end = offsets[mark.edge.polygon] + (mark.edge.edge + 1) % sides
-        return (native_start, native_end) if mark.forward else (native_end, native_start)
+    def _smith_normal_form(
+        source: list[list[int]], row_count: int
+    ) -> tuple[tuple[int, ...], tuple[tuple[int, ...], ...]]:
+        """Return D's nonzero diagonal and U where U * source * V = D."""
+
+        column_count = len(source[0]) if source else 0
+        matrix = [row[:] for row in source] if source else [[] for _ in range(row_count)]
+        transform = [[int(i == j) for j in range(row_count)] for i in range(row_count)]
+
+        def swap_rows(first: int, second: int) -> None:
+            matrix[first], matrix[second] = matrix[second], matrix[first]
+            transform[first], transform[second] = transform[second], transform[first]
+
+        def add_row(target: int, source_row: int, multiple: int) -> None:
+            matrix[target] = [
+                value + multiple * other
+                for value, other in zip(matrix[target], matrix[source_row], strict=True)
+            ]
+            transform[target] = [
+                value + multiple * other
+                for value, other in zip(transform[target], transform[source_row], strict=True)
+            ]
+
+        def swap_columns(first: int, second: int) -> None:
+            for row in matrix:
+                row[first], row[second] = row[second], row[first]
+
+        pivot = 0
+        while pivot < row_count and pivot < column_count:
+            locations = [
+                (abs(matrix[row][column]), row, column)
+                for row in range(pivot, row_count)
+                for column in range(pivot, column_count)
+                if matrix[row][column]
+            ]
+            if not locations:
+                break
+            _, row, column = min(locations)
+            swap_rows(pivot, row)
+            swap_columns(pivot, column)
+            while True:
+                changed = False
+                for row in range(pivot + 1, row_count):
+                    if matrix[row][pivot]:
+                        quotient = matrix[row][pivot] // matrix[pivot][pivot]
+                        add_row(row, pivot, -quotient)
+                        if matrix[row][pivot]:
+                            swap_rows(row, pivot)
+                        changed = True
+                        break
+                if changed:
+                    continue
+                for column in range(pivot + 1, column_count):
+                    if matrix[pivot][column]:
+                        quotient = matrix[pivot][column] // matrix[pivot][pivot]
+                        for row in matrix:
+                            row[column] -= quotient * row[pivot]
+                        if matrix[pivot][column]:
+                            swap_columns(column, pivot)
+                        changed = True
+                        break
+                if changed:
+                    continue
+                offender = next(
+                    (
+                        (row, column)
+                        for row in range(pivot + 1, row_count)
+                        for column in range(pivot + 1, column_count)
+                        if matrix[row][column] % matrix[pivot][pivot]
+                    ),
+                    None,
+                )
+                if offender is None:
+                    break
+                add_row(pivot, offender[0], 1)
+            if matrix[pivot][pivot] < 0:
+                add_row(pivot, pivot, -2)
+            pivot += 1
+        diagonal = tuple(
+            abs(matrix[index][index])
+            for index in range(min(row_count, column_count))
+            if matrix[index][index]
+        )
+        return diagonal, tuple(tuple(row) for row in transform)
+
+    @staticmethod
+    def _unimodular_inverse(matrix: tuple[tuple[int, ...], ...]) -> tuple[tuple[int, ...], ...]:
+        from fractions import Fraction
+
+        size = len(matrix)
+        augmented = [
+            [*(Fraction(value) for value in row), *(Fraction(int(i == j)) for j in range(size))]
+            for i, row in enumerate(matrix)
+        ]
+        for column in range(size):
+            pivot = next(row for row in range(column, size) if augmented[row][column])
+            augmented[column], augmented[pivot] = augmented[pivot], augmented[column]
+            divisor = augmented[column][column]
+            augmented[column] = [value / divisor for value in augmented[column]]
+            for row in range(size):
+                if row != column and augmented[row][column]:
+                    multiple = augmented[row][column]
+                    augmented[row] = [
+                        value - multiple * other
+                        for value, other in zip(augmented[row], augmented[column], strict=True)
+                    ]
+        return tuple(tuple(int(value) for value in row[size:]) for row in augmented)
+
+    @staticmethod
+    def _rational_rank(matrix: list[list[int]]) -> int:
+        from fractions import Fraction
+
+        a = [[Fraction(value) for value in row] for row in matrix]
+        rank = 0
+        for column in range(len(a[0]) if a else 0):
+            pivot = next((r for r in range(rank, len(a)) if a[r][column]), None)
+            if pivot is None:
+                continue
+            a[rank], a[pivot] = a[pivot], a[rank]
+            divisor = a[rank][column]
+            a[rank] = [value / divisor for value in a[rank]]
+            for row in range(len(a)):
+                if row != rank and a[row][column]:
+                    factor = a[row][column]
+                    a[row] = [x - factor * y for x, y in zip(a[row], a[rank], strict=False)]
+            rank += 1
+        return rank
+
+    @staticmethod
+    def _det(matrix: list[list[int]]) -> int:
+        if not matrix:
+            return 1
+        if len(matrix) == 1:
+            return matrix[0][0]
+        return sum(
+            (-1) ** col
+            * value
+            * SurfaceAnalyzer._det([row[:col] + row[col + 1 :] for row in matrix[1:]])
+            for col, value in enumerate(matrix[0])
+        )
+
+    @staticmethod
+    def _edge_name(edge: EdgeRef) -> str:
+        return f"e{edge.polygon}:{edge.edge}"
+
+    @staticmethod
+    def _parse_edge_name(name: str) -> EdgeRef:
+        polygon, edge = name[1:].split(":")
+        return EdgeRef(int(polygon), int(edge))

@@ -1,260 +1,368 @@
-"""Seeded generators for polygon quotients and boundary-gluing quotient maps."""
+"""Intent-aware probabilistic generators of polygon-edge presentations."""
 
 import math
-from dataclasses import dataclass
 from random import Random
 
 from topology_benchmark.core.models import GenerationRequest
+from topology_benchmark.core.probability import (
+    BernoulliDistribution,
+    FiniteDistribution,
+    SamplingSession,
+    TruncatedGeometricDistribution,
+    WeightedValue,
+    blended_weight,
+)
 from topology_benchmark.domains.surfaces.analysis import SurfaceAnalyzer
+from topology_benchmark.domains.surfaces.components.generation_config import (
+    SurfaceGenerationConfig,
+    load_generation_config,
+)
+from topology_benchmark.domains.surfaces.generation import (
+    ProblemSubject,
+    QuestionFocus,
+    SurfaceGenerationContext,
+    SurfaceProblemIntent,
+)
 from topology_benchmark.domains.surfaces.models import (
     BoundaryGluingMorphism,
-    DirectedEdgeMark,
-    EdgeIdentification,
+    EdgeGluing,
     EdgeRef,
-    PathDrawing,
-    Point,
+    OrientedEdge,
     Polygon,
     PolygonAttachmentMorphism,
     SurfaceMorphism,
+    SurfacePath,
     SurfacePresentation,
 )
 from topology_benchmark.domains.surfaces.ports import SurfaceGenerator, SurfaceMorphismGenerator
 
 
-@dataclass(frozen=True, slots=True)
-class _ComponentRecipe:
-    """Ephemeral generation parameters, never stored as surface ground truth."""
-
-    orientable: bool
-    genus: int
-    boundary: int
-
-
 class RandomSurfacePresentationGenerator(SurfaceGenerator):
+    """Sample a valid surface using soft weights conditioned on problem intent."""
+
+    def __init__(self, config: SurfaceGenerationConfig | None = None) -> None:
+        self.config = config or load_generation_config()
+
     def generate(self, request: GenerationRequest, rng: Random) -> SurfacePresentation:
-        count = rng.randint(1, min(3, 1 + request.difficulty // 4))
-        recipes = tuple(self._recipe(request, rng) for _ in range(count))
-        polygons: list[Polygon] = []
-        marks: list[DirectedEdgeMark] = []
-        polygon_components: list[int] = []
-        for component, recipe in enumerate(recipes):
-            specs = self._edge_specs(recipe, component)
-            if not specs:  # two discs with their complete rims glued present S^2
-                first = len(polygons)
-                polygons.extend(
-                    (
-                        self._polygon("P", 3, first, rng),
-                        self._polygon("Q", 3, first + 1, rng),
-                    )
+        sampling = SamplingSession(request.seed, self.config.profile_version)
+        intent = SurfaceProblemIntent(
+            ProblemSubject.OBJECT, "euler-characteristic", QuestionFocus.GLOBAL
+        )
+        return self._generate(SurfaceGenerationContext(request, intent, sampling), rng)
+
+    def generate_for(self, context: SurfaceGenerationContext) -> SurfacePresentation:
+        return self._generate(context, context.sampling.rng("surface.structure"))
+
+    def _generate(self, context: SurfaceGenerationContext, rng: Random) -> SurfacePresentation:
+        for _ in range(self.config.retry_limit):
+            polygon_count = self._polygon_count(context, rng)
+            polygons = tuple(
+                Polygon(chr(ord("P") + index), self._side_count(context.request, rng))
+                for index in range(polygon_count)
+            )
+            edges = [
+                EdgeRef(polygon, edge)
+                for polygon, shape in enumerate(polygons)
+                for edge in range(shape.sides)
+            ]
+            pair_count = self._pair_count(context, len(edges), rng)
+            rng.shuffle(edges)
+            selected = edges[: 2 * pair_count]
+            gluings = tuple(
+                EdgeGluing(
+                    selected[2 * index],
+                    selected[2 * index + 1],
+                    self._label(index),
+                    rng.choice((True, False)),
                 )
-                polygon_components.extend((component, component))
-                for edge in range(3):
-                    word = f"s{component}_{edge}"
-                    marks.extend(
-                        (
-                            DirectedEdgeMark(EdgeRef(first, edge), word, True),
-                            DirectedEdgeMark(EdgeRef(first + 1, 2 - edge), word, True),
-                        )
-                    )
+                for index in range(pair_count)
+            )
+            candidate = SurfacePresentation(polygons, gluings)
+            try:
+                SurfaceAnalyzer().analyze(candidate)
+            except ValueError:
                 continue
-            polygon_index = len(polygons)
-            polygons.append(self._polygon(chr(80 + component), len(specs), polygon_index, rng))
-            polygon_components.append(component)
-            for edge, spec in enumerate(specs):
-                if spec is not None:
-                    word, forward = spec
-                    marks.append(DirectedEdgeMark(EdgeRef(polygon_index, edge), word, forward))
+            paths = self._paths(candidate, context)
+            context.sampling.note("surface.relaxed", False)
+            return SurfacePresentation(polygons, gluings, paths)
 
-        base = SurfacePresentation(
-            tuple(polygons), tuple(marks), palette=rng.choice(("ink", "ocean", "clay"))
-        )
-        paths = self._paths(base, polygon_components, request, rng)
-        result = SurfacePresentation(base.polygons, base.marks, paths, base.palette)
-        SurfaceAnalyzer().analyze(result)  # reject generator bugs at the data boundary
-        return result
+        context.sampling.note("surface.relaxed", True, noise=True)
+        sides = 3 + context.sampling.rng("surface.fallback").randrange(4)
+        fallback = SurfacePresentation((Polygon("P", sides),), ())
+        return SurfacePresentation(fallback.polygons, (), self._paths(fallback, context))
 
-    @staticmethod
-    def _recipe(request: GenerationRequest, rng: Random) -> _ComponentRecipe:
-        orientable = rng.choice((True, False))
-        genus = rng.randint(0 if orientable else 1, max(1, 1 + request.difficulty // 3))
-        boundary = rng.randint(0, min(3, 1 + request.difficulty // 3))
-        return _ComponentRecipe(orientable, genus, boundary)
-
-    @staticmethod
-    def _edge_specs(recipe: _ComponentRecipe, component: int) -> list[tuple[str, bool] | None]:
-        prefix = f"c{component}"
-        specs: list[tuple[str, bool] | None] = []
-        if recipe.orientable:
-            for handle in range(recipe.genus):
-                a, b = f"{prefix}a{handle + 1}", f"{prefix}b{handle + 1}"
-                specs.extend(((a, True), (b, True), (a, False), (b, False)))
-        else:
-            for crosscap in range(recipe.genus):
-                word = f"{prefix}x{crosscap + 1}"
-                specs.extend(((word, True), (word, True)))
-        for boundary in range(max(0, recipe.boundary - 1)):
-            word = f"{prefix}d{boundary + 1}"
-            specs.extend(((word, True), None, (word, False)))
-        if recipe.boundary:
-            specs.append(None)
-        if specs and len(specs) < 3:
-            word = f"{prefix}q"
-            specs.extend(((word, True), (word, False)))
-        return specs
-
-    @staticmethod
-    def _polygon(name: str, sides: int, slot: int, rng: Random) -> Polygon:
-        radius = min(105.0, 48.0 + sides * 5.0)
-        center_x, center_y = 145.0 + 245.0 * (slot % 3), 145.0 + 235.0 * (slot // 3)
-        phase = rng.uniform(-math.pi, math.pi)
-        return Polygon(
-            name,
-            tuple(
-                Point(
-                    center_x
-                    + radius
-                    * rng.uniform(0.86, 1.08)
-                    * math.cos(phase + 2 * math.pi * index / sides),
-                    center_y
-                    + radius
-                    * rng.uniform(0.86, 1.08)
-                    * math.sin(phase + 2 * math.pi * index / sides),
+    def _polygon_count(self, context: SurfaceGenerationContext, rng: Random) -> int:
+        profile = self.config.difficulty
+        difficulty = context.request.difficulty
+        target = profile.visual_budget.at(difficulty)
+        options = []
+        for count, weights in profile.polygon_count_weights.items():
+            aligned = weights.at(difficulty)
+            if context.intent.question_kind == "connected-components":
+                aligned *= 3.0 if count >= 2 else 0.35
+            if context.intent.focus is QuestionFocus.PATH and count > 2:
+                aligned *= 0.3
+            aligned *= math.exp(-0.35 * max(0.0, count - target / 2) ** 2)
+            options.append(
+                WeightedValue(
+                    count,
+                    blended_weight(aligned, 0.25, self.config.noise_probability),
                 )
-                for index in range(sides)
-            ),
-        )
+            )
+        return FiniteDistribution(tuple(options)).sample(rng)
 
-    @staticmethod
+    def _side_count(self, request: GenerationRequest, rng: Random) -> int:
+        continuation = self.config.difficulty.side_continuation.at(request.difficulty)
+        return TruncatedGeometricDistribution(3, 8, continuation).sample(rng)
+
+    def _pair_count(self, context: SurfaceGenerationContext, edge_count: int, rng: Random) -> int:
+        maximum = edge_count // 2
+        density = self.config.difficulty.gluing_density.at(context.request.difficulty)
+        if context.intent.focus is QuestionFocus.CLASSIFICATION:
+            density = min(0.85, density * 1.2)
+        target = density * maximum
+        budget = self.config.difficulty.visual_budget.at(context.request.difficulty)
+        options = tuple(
+            WeightedValue(
+                count,
+                blended_weight(
+                    math.exp(-0.55 * (count - target) ** 2)
+                    * math.exp(-0.5 * max(0.0, count - budget) ** 2),
+                    1 / (maximum + 1),
+                    self.config.noise_probability,
+                ),
+            )
+            for count in range(maximum + 1)
+        )
+        return FiniteDistribution(options).sample(rng)
+
     def _paths(
+        self, surface: SurfacePresentation, context: SurfaceGenerationContext
+    ) -> tuple[SurfacePath, ...]:
+        focused = context.intent.focus is QuestionFocus.PATH
+        incidental: bool = False
+        if not focused:
+            incidental = context.sampling.sample(
+                "paths.incidental",
+                BernoulliDistribution(self.config.noise_probability),
+                noise=True,
+            )
+        extra: bool = False
+        if focused:
+            extra = context.sampling.sample(
+                "paths.extra",
+                BernoulliDistribution(self.config.noise_probability),
+                noise=True,
+            )
+        count = int(focused or incidental) + int(extra)
+        paths: list[SurfacePath] = []
+        remaining_segments = 7
+        for index in range(count):
+            reserved_for_later = count - index - 1
+            maximum = remaining_segments - reserved_for_later
+            path = self._path(surface, context, index, maximum)
+            paths.append(path)
+            remaining_segments -= len(path.edges)
+        return tuple(paths)
+
+    def _path(
+        self,
         surface: SurfacePresentation,
-        polygon_components: list[int],
-        request: GenerationRequest,
-        rng: Random,
-    ) -> tuple[PathDrawing, ...]:
-        result = []
-        for index in range(1 if request.difficulty < 4 else 2):
-            polygon_index = rng.randrange(len(surface.polygons))
-            polygon = surface.polygons[polygon_index]
-            component = polygon_components[polygon_index]
-            labels = sorted(
-                {
-                    mark.word
-                    for mark in surface.marks
-                    if polygon_components[mark.edge.polygon] == component
-                    and not mark.word.endswith("q")
-                    and not mark.word.startswith("s")
-                }
+        context: SurfaceGenerationContext,
+        index: int,
+        segment_budget: int,
+    ) -> SurfacePath:
+        maximum = min(
+            segment_budget,
+            max(1, round(self.config.difficulty.path_maximum.at(context.request.difficulty))),
+        )
+        continuation = self.config.difficulty.path_continuation.at(context.request.difficulty)
+        length = context.sampling.sample(
+            f"path.{index}.length",
+            TruncatedGeometricDistribution(1, maximum, continuation),
+        )
+        must_be_closed: bool = context.intent.question_kind == "path-representative" and index == 0
+        if context.intent.question_kind == "path-is-cycle" and index == 0:
+            must_be_closed = context.sampling.sample(
+                f"path.{index}.closed", BernoulliDistribution(0.55)
             )
-            closed = bool(labels) and rng.random() > 0.22
-            word = (
-                tuple((label, exponent) for label in labels if (exponent := rng.randint(-2, 2)))
-                if closed
-                else ()
+        elif not must_be_closed:
+            must_be_closed = context.sampling.sample(
+                f"path.{index}.closed", BernoulliDistribution(0.5)
             )
-            cx = sum(point.x for point in polygon.vertices) / len(polygon.vertices)
-            cy = sum(point.y for point in polygon.vertices) / len(polygon.vertices)
-            start = Point(cx - rng.uniform(22, 48), cy + rng.uniform(-20, 20))
-            end = start if closed else Point(cx + rng.uniform(20, 48), cy + rng.uniform(-25, 25))
-            result.append(
-                PathDrawing(
-                    chr(112 + index),
-                    polygon_index,
-                    (
-                        start,
-                        Point(cx + rng.uniform(-55, 5), cy - rng.uniform(25, 65)),
-                        Point(cx + rng.uniform(5, 55), cy + rng.uniform(25, 65)),
-                        end,
-                    ),
-                    closed,
-                    word,
+        rng = context.sampling.rng(f"path.{index}.walk")
+        quotient = surface._quotient_vertices()
+        directed = tuple(
+            OrientedEdge(EdgeRef(polygon, edge), forward)
+            for polygon, shape in enumerate(surface.polygons)
+            for edge in range(shape.sides)
+            for forward in (True, False)
+        )
+        outgoing: dict[int, list[OrientedEdge]] = {}
+        for edge in directed:
+            start = surface._path_endpoint(edge, True, quotient)
+            outgoing.setdefault(start, []).append(edge)
+        for _ in range(80):
+            walk = [rng.choice(directed)]
+            for _ in range(length - 1):
+                current = surface._path_endpoint(walk[-1], False, quotient)
+                choices = outgoing[current]
+                weighted = tuple(
+                    WeightedValue(
+                        choice,
+                        0.15
+                        if choice.edge == walk[-1].edge and choice.forward != walk[-1].forward
+                        else 1.0,
+                    )
+                    for choice in choices
                 )
+                walk.append(FiniteDistribution(weighted).sample(rng))
+            closed = surface._path_endpoint(walk[0], True, quotient) == surface._path_endpoint(
+                walk[-1], False, quotient
             )
-        return tuple(result)
+            if closed == must_be_closed:
+                return SurfacePath(chr(ord("p") + index), tuple(walk))
+
+        if must_be_closed and maximum >= 2:
+            edge = rng.choice(directed)
+            walk = (edge, OrientedEdge(edge.edge, not edge.forward))
+        else:
+            edge = next(
+                (
+                    item
+                    for item in directed
+                    if surface._path_endpoint(item, True, quotient)
+                    != surface._path_endpoint(item, False, quotient)
+                ),
+                directed[0],
+            )
+            walk = (edge,)
+        return SurfacePath(chr(ord("p") + index), walk)
+
+    @staticmethod
+    def _label(index: int) -> str:
+        alphabet = "abcdefghijklmnopqrstuvwxyz"
+        return alphabet[index] if index < len(alphabet) else f"g{index + 1}"
 
 
 class RandomSurfaceMorphismGenerator(SurfaceMorphismGenerator):
-    """Generate inclusion and quotient arrows with their precise construction members."""
+    """Sample varied instances of the two supported mathematical arrow types."""
+
+    def __init__(self, config: SurfaceGenerationConfig | None = None) -> None:
+        self.config = config or load_generation_config()
 
     def generate(self, request: GenerationRequest, rng: Random) -> SurfaceMorphism:
-        choice = rng.random()
-        if request.difficulty >= 4 and choice < 0.34:
-            return self._attach_polygon(rng)
-        if request.difficulty < 5 or choice < 0.67:
-            return self._glue_two_disks(rng, min(7, 3 + request.difficulty // 2))
-        return self._close_annulus(rng)
+        sampling = SamplingSession(request.seed, self.config.profile_version)
+        intent = SurfaceProblemIntent(
+            ProblemSubject.MORPHISM, "boundary-change", QuestionFocus.RELATIONAL
+        )
+        return self._generate(SurfaceGenerationContext(request, intent, sampling), rng)
+
+    def generate_for(self, context: SurfaceGenerationContext) -> SurfaceMorphism:
+        return self._generate(context, context.sampling.rng("morphism.structure"))
+
+    def _generate(self, context: SurfaceGenerationContext, rng: Random) -> SurfaceMorphism:
+        family = self._family(context)
+        for _ in range(40):
+            try:
+                if family == "full-disk-boundary":
+                    sides = self._side_count(context.request, rng)
+                    return self._glue_two_disks(rng, sides)
+                if family == "attachment":
+                    return self._attach_polygon(rng)
+                if family == "partial-intercomponent":
+                    return self._partial_intercomponent(rng, context.request.difficulty)
+                if family == "self-boundary":
+                    return self._self_boundary(rng, context.request.difficulty)
+                return self._close_annulus(rng)
+            except ValueError:
+                continue
+        context.sampling.note("morphism.relaxed", True, noise=True)
+        return self._attach_polygon(rng)
+
+    def _family(self, context: SurfaceGenerationContext) -> str:
+        affinity = self.config.morphism_affinity.get(context.intent.question_kind, {})
+        options = tuple(
+            WeightedValue(
+                family,
+                blended_weight(
+                    weights.at(context.request.difficulty) * affinity.get(family, 1.0),
+                    weights.at(context.request.difficulty),
+                    self.config.noise_probability,
+                ),
+            )
+            for family, weights in self.config.morphism_family_weights.items()
+        )
+        return context.sampling.sample("morphism.family", FiniteDistribution(options))
+
+    def _side_count(self, request: GenerationRequest, rng: Random) -> int:
+        continuation = self.config.difficulty.side_continuation.at(request.difficulty)
+        return TruncatedGeometricDistribution(3, 8, continuation).sample(rng)
 
     @staticmethod
     def _attach_polygon(rng: Random) -> PolygonAttachmentMorphism:
-        polygon = RandomSurfacePresentationGenerator._polygon("D", 4, 0, rng)
-        source = SurfacePresentation((polygon,), (), palette=rng.choice(("ink", "ocean", "clay")))
-        edge = rng.randrange(4)
-        first = EdgeRef(0, edge)
-        a, b = polygon.vertices[edge], polygon.vertices[(edge + 1) % 4]
-        midpoint = Point((a.x + b.x) / 2, (a.y + b.y) / 2)
-        dx, dy = b.x - a.x, b.y - a.y
-        length = max(1.0, math.hypot(dx, dy))
-        tip = Point(midpoint.x + 55 * dy / length, midpoint.y - 55 * dx / length)
-        triangle = Polygon("A", (b, a, tip))
-        attachment = EdgeIdentification(first, EdgeRef(1, 0), "attach", False)
+        source_sides, attached_sides = rng.randint(3, 6), rng.randint(3, 6)
+        source = SurfacePresentation((Polygon("D", source_sides),), ())
+        attachment = EdgeGluing(EdgeRef(0, 1), EdgeRef(1, 0), "a", False)
         target = SurfacePresentation(
-            (polygon, triangle),
-            (
-                DirectedEdgeMark(first, "attach", True),
-                DirectedEdgeMark(EdgeRef(1, 0), "attach", False),
-            ),
-            palette=source.palette,
+            (Polygon("D", source_sides), Polygon("A", attached_sides)), (attachment,)
         )
-        analyzer = SurfaceAnalyzer()
-        analyzer.analyze(source)
-        analyzer.analyze(target)
-        return PolygonAttachmentMorphism(source, target, attachment, 1)
+        SurfaceAnalyzer().analyze(target)
+        return PolygonAttachmentMorphism(source, target, attachment, 1, "attachment")
 
     @staticmethod
     def _glue_two_disks(rng: Random, sides: int) -> BoundaryGluingMorphism:
-        polygons = (
-            RandomSurfacePresentationGenerator._polygon("D1", sides, 0, rng),
-            RandomSurfacePresentationGenerator._polygon("D2", sides, 1, rng),
-        )
-        source = SurfacePresentation(polygons, (), palette=rng.choice(("ink", "ocean", "clay")))
+        del rng
+        polygons = (Polygon("D1", sides), Polygon("D2", sides))
+        source = SurfacePresentation(polygons, ())
         identifications = tuple(
-            EdgeIdentification(EdgeRef(0, edge), EdgeRef(1, sides - 1 - edge), f"g{edge}", False)
+            EdgeGluing(EdgeRef(0, edge), EdgeRef(1, sides - 1 - edge), f"g{edge + 1}", False)
             for edge in range(sides)
         )
-        return RandomSurfaceMorphismGenerator._build(source, identifications)
+        return RandomSurfaceMorphismGenerator._build(source, identifications, "full-disk-boundary")
+
+    @staticmethod
+    def _partial_intercomponent(rng: Random, difficulty: int) -> BoundaryGluingMorphism:
+        first_sides, second_sides = rng.randint(3, 7), rng.randint(3, 7)
+        source = SurfacePresentation((Polygon("D1", first_sides), Polygon("D2", second_sides)), ())
+        maximum = min(first_sides, second_sides) - 1
+        count = rng.randint(1, min(maximum, 1 + difficulty // 3))
+        identifications = tuple(
+            EdgeGluing(EdgeRef(0, edge), EdgeRef(1, count - 1 - edge), f"g{edge + 1}", False)
+            for edge in range(count)
+        )
+        return RandomSurfaceMorphismGenerator._build(
+            source, identifications, "partial-intercomponent"
+        )
+
+    @staticmethod
+    def _self_boundary(rng: Random, difficulty: int) -> BoundaryGluingMorphism:
+        sides = rng.randint(4, min(8, 4 + difficulty // 2))
+        source = SurfacePresentation((Polygon("D", sides),), ())
+        first = rng.randrange(sides)
+        offsets = [offset for offset in range(2, sides - 1)] or [2]
+        second = (first + rng.choice(offsets)) % sides
+        identification = EdgeGluing(
+            EdgeRef(0, first), EdgeRef(0, second), "a", rng.choice((True, False))
+        )
+        return RandomSurfaceMorphismGenerator._build(source, (identification,), "self-boundary")
 
     @staticmethod
     def _close_annulus(rng: Random) -> BoundaryGluingMorphism:
-        polygon = RandomSurfacePresentationGenerator._polygon("C", 4, 0, rng)
-        source = SurfacePresentation(
-            (polygon,),
-            (
-                DirectedEdgeMark(EdgeRef(0, 0), "a", True),
-                DirectedEdgeMark(EdgeRef(0, 2), "a", False),
-            ),
-            palette=rng.choice(("ink", "ocean", "clay")),
-        )
-        same_direction = rng.choice((True, False))
-        identification = EdgeIdentification(
-            EdgeRef(0, 1), EdgeRef(0, 3), "boundary", same_direction
-        )
-        return RandomSurfaceMorphismGenerator._build(source, (identification,))
+        annulus_gluing = EdgeGluing(EdgeRef(0, 0), EdgeRef(0, 2), "a", False)
+        source = SurfacePresentation((Polygon("C", 4),), (annulus_gluing,))
+        identification = EdgeGluing(EdgeRef(0, 1), EdgeRef(0, 3), "b", rng.choice((True, False)))
+        return RandomSurfaceMorphismGenerator._build(source, (identification,), "annulus-closure")
 
     @staticmethod
     def _build(
-        source: SurfacePresentation, identifications: tuple[EdgeIdentification, ...]
+        source: SurfacePresentation,
+        identifications: tuple[EdgeGluing, ...],
+        family: str = "boundary-quotient",
     ) -> BoundaryGluingMorphism:
-        additions = tuple(
-            mark
-            for gluing in identifications
-            for mark in (
-                DirectedEdgeMark(gluing.first, gluing.word, True),
-                DirectedEdgeMark(gluing.second, gluing.word, gluing.same_direction),
-            )
-        )
         target = SurfacePresentation(
-            source.polygons, (*source.marks, *additions), source.paths, source.palette
+            source.polygons, (*source.gluings, *identifications), source.paths
         )
-        analyzer = SurfaceAnalyzer()
-        analyzer.analyze(source)
-        analyzer.analyze(target)
-        return BoundaryGluingMorphism(source, target, identifications)
+        SurfaceAnalyzer().analyze(source)
+        SurfaceAnalyzer().analyze(target)
+        return BoundaryGluingMorphism(source, target, identifications, family)

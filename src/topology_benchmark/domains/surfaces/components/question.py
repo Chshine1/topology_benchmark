@@ -29,8 +29,8 @@ def formulate_object(surface: SurfacePresentation, kind: str, path_index: int = 
         "homology-groups": "Compute H_0, H_1, and H_2 with integer coefficients.",
         "path-is-cycle": f"Does the displayed path {path.name if path else 'p'} define a 1-cycle?",
         "path-representative": (
-            f"Give a cellular homology representative for path {path.name if path else 'p'} "
-            "in the deterministic spanning-forest cycle basis."
+            f"Express path {path.name if path else 'p'} in the displayed cellular cycle basis "
+            "and reduce it using the Smith relations."
         ),
     }
     return questions[kind]

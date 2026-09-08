@@ -1,5 +1,7 @@
 """Invariants computed from surface objects and boundary-gluing morphisms."""
 
+from collections import Counter
+
 from topology_benchmark.domains.surfaces.analysis import SurfaceAnalyzer, SurfaceFacts
 from topology_benchmark.domains.surfaces.models import (
     BoundaryGluingMorphism,
@@ -11,7 +13,16 @@ from topology_benchmark.domains.surfaces.ports import SurfaceAnswer
 
 
 def integral_homology(surface: SurfacePresentation) -> str:
-    return _homology_from_facts(SurfaceAnalyzer().analyze(surface))
+    homology = SurfaceAnalyzer().cellular_homology(surface)
+    h1_parts = []
+    if homology.h1_rank:
+        h1_parts.append(_free_group(homology.h1_rank))
+    for order, count in sorted(Counter(homology.h1_torsion).items()):
+        h1_parts.append(f"Z/{order}" if count == 1 else f"(Z/{order})^{count}")
+    return (
+        f"H_0={_free_group(homology.h0_rank)}; "
+        f"H_1={' ⊕ '.join(h1_parts) or '0'}; H_2={_free_group(homology.h2_rank)}"
+    )
 
 
 def object_answer(
@@ -28,16 +39,21 @@ def object_answer(
     if question_kind == "orientable":
         return all(component.orientable for component in facts.components)
     if question_kind == "homology-groups":
-        return _homology_from_facts(facts)
+        return integral_homology(surface)
     path = surface.paths[path_index]
     if question_kind == "path-is-cycle":
         return analyzer.path_is_cycle(surface, path)
     if question_kind == "path-representative":
         if not analyzer.path_is_cycle(surface, path):
             return "not a homology class (the path is not a cycle)"
-        labels = analyzer.cycle_basis(surface)
-        vector = analyzer.path_representative(surface, path)
-        return f"edge_basis={tuple(labels)}; cycle={vector} mod cellular boundaries"
+        homology = analyzer.cellular_homology(surface)
+        cycle_vector = analyzer.path_representative(surface, path)
+        smith_vector = analyzer.path_homology_class(surface, path)
+        return (
+            f"cycle_basis={homology.cycle_basis}; cycle_coordinates={cycle_vector}; "
+            f"Smith_basis={homology.smith_basis}; class={smith_vector}; "
+            f"Smith_diagonal={homology.smith_diagonal}"
+        )
     raise ValueError(f"unknown surface question kind: {question_kind}")
 
 
@@ -52,7 +68,7 @@ def morphism_answer(morphism: SurfaceMorphism, question_kind: str) -> SurfaceAns
     if question_kind == "component-change":
         return len(target.components) - len(source.components)
     if question_kind == "target-homology":
-        return _homology_from_facts(target)
+        return integral_homology(morphism.target)
     if question_kind == "map-injective":
         return isinstance(morphism, PolygonAttachmentMorphism)
     if question_kind == "map-surjective":

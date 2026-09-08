@@ -1,0 +1,50 @@
+rendering:
+  canvas:
+    max_columns: 3
+    cell_width: 360
+    cell_height: 350
+    margin_x: 48
+    margin_y: 42
+
+  geometry:
+    side_length: 112
+    curve_samples: 96
+    curvature:
+      edge_base: 32
+      edge_step: 22
+      interior_step: 64
+
+  stroke:
+    polygon_width: 1.8
+    path_width: 1.45
+    vertex_size: 9
+    dotted_pattern: [1, 2.6]
+
+  arrows:
+    gluing_size: 18
+    path_size: 13
+    path_count_limit: 4
+    spread_start: 0.22
+    spread_end: 0.78
+    tangent_span: 0.045
+
+  labels:
+    polygon_size: 13
+    gluing_size: 10
+    path_size: 11
+    order_size: 9
+    tag_offset: 20
+    tag_clearance: 24
+    gluing_offset: 19
+    path_offset: 11
+
+  palettes:
+    - fill: "#f8f5ed"
+      ink: "#263238"
+      path_colors: ["#007c91", "#d97706", "#7e22ce"]
+    - fill: "#e8f4f8"
+      ink: "#164e63"
+      path_colors: ["#be123c", "#00796b", "#6a1b9a"]
+    - fill: "#fff1e6"
+      ink: "#5d4037"
+      path_colors: ["#1565c0", "#c62828", "#00838f"]

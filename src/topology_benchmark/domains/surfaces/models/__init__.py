@@ -1,11 +1,13 @@
-from .models import (
+from .morphism import (
     BoundaryGluingMorphism,
+    PolygonAttachmentMorphism,
+    SurfaceMorphism,
+)
+from .object import (
     EdgeGluing,
     EdgeRef,
     OrientedEdge,
     Polygon,
-    PolygonAttachmentMorphism,
-    SurfaceMorphism,
     SurfacePath,
     SurfacePresentation,
 )

@@ -1,10 +1,19 @@
+import math
 import random
+from pathlib import Path
 
 import pytest
 
 from topology_benchmark import SurfaceBenchmark, build_container
 from topology_benchmark.core.models import GenerationRequest
 from topology_benchmark.domains.surfaces.analysis import SurfaceAnalyzer
+from topology_benchmark.domains.surfaces.components.display import (
+    DiagramStyle,
+    LinePattern,
+    OrderDisplay,
+    Palette,
+    SurfaceDiagramPlanner,
+)
 from topology_benchmark.domains.surfaces.components.generator import (
     RandomSurfaceMorphismGenerator,
     RandomSurfacePresentationGenerator,
@@ -13,52 +22,21 @@ from topology_benchmark.domains.surfaces.components.invariant import (
     integral_homology,
     morphism_answer,
 )
-from topology_benchmark.domains.surfaces.components.representation import SvgGluingDiagramRenderer
+from topology_benchmark.domains.surfaces.components.rendering_config import (
+    SurfaceRenderingConfig,
+    load_rendering_config,
+)
+from topology_benchmark.domains.surfaces.components.representation import (
+    MatplotlibGluingDiagramRenderer,
+)
 from topology_benchmark.domains.surfaces.models import (
-    BoundaryGluingMorphism,
-    DirectedEdgeMark,
-    EdgeIdentification,
+    EdgeGluing,
     EdgeRef,
-    Point,
+    OrientedEdge,
     Polygon,
+    SurfacePath,
     SurfacePresentation,
 )
-
-
-def _polygon(name: str = "P", sides: int = 4) -> Polygon:
-    points = (Point(0, 0), Point(1, 0), Point(1, 1), Point(0, 1))
-    return Polygon(name, points[:sides])
-
-
-def test_topology_is_derived_from_the_presentation() -> None:
-    disk = SurfacePresentation((_polygon(sides=3),), ())
-    facts = SurfaceAnalyzer().analyze(disk)
-
-    assert facts.euler_characteristic == 1
-    assert facts.boundary_components == 1
-    assert len(facts.components) == 1
-    assert facts.components[0].orientable
-    assert facts.components[0].genus == 0
-    assert integral_homology(disk) == "H_0=Z; H_1=0; H_2=0"
-
-
-def test_a_square_word_is_computed_as_a_torus() -> None:
-    torus = SurfacePresentation(
-        (_polygon(),),
-        (
-            DirectedEdgeMark(EdgeRef(0, 0), "a", True),
-            DirectedEdgeMark(EdgeRef(0, 2), "a", False),
-            DirectedEdgeMark(EdgeRef(0, 1), "b", True),
-            DirectedEdgeMark(EdgeRef(0, 3), "b", False),
-        ),
-    )
-    facts = SurfaceAnalyzer().analyze(torus)
-
-    assert facts.euler_characteristic == 0
-    assert facts.boundary_components == 0
-    assert facts.components[0].orientable
-    assert facts.components[0].genus == 1
-    assert integral_homology(torus) == "H_0=Z; H_1=Z^2; H_2=Z"
 
 
 def test_generated_quotients_are_compact_surfaces_without_stored_invariants() -> None:
@@ -123,11 +101,103 @@ def test_morphism_invariants_are_computed_from_source_and_target() -> None:
 def test_renderer_is_deterministic() -> None:
     request = GenerationRequest(3, 5)
     surface = RandomSurfacePresentationGenerator().generate(request, random.Random(3))
-    renderer = SvgGluingDiagramRenderer()
+    config = load_rendering_config()
+    renderer = MatplotlibGluingDiagramRenderer(SurfaceDiagramPlanner(config), config)
 
     assert renderer.render(surface, request, random.Random(1)) == renderer.render(
         surface, request, random.Random(999)
     )
+
+
+def test_diagram_plan_uses_regular_polygons_with_one_shared_side_length() -> None:
+    surface = SurfacePresentation((Polygon("T", 3), Polygon("O", 8)), ())
+    plan = SurfaceDiagramPlanner(load_rendering_config()).plan(surface, random.Random(12))
+    lengths = [
+        pytest.approx(layout.side_length) for layout in plan.polygons for _ in layout.vertices
+    ]
+
+    assert all(
+        math.dist(*layout.edge(edge)) == lengths[0]
+        for layout in plan.polygons
+        for edge in range(len(layout.vertices))
+    )
+    assert plan.style.path_width <= plan.style.polygon_width
+
+
+def test_cross_polygon_gluings_are_always_dotted() -> None:
+    gluing = EdgeGluing(EdgeRef(0, 0), EdgeRef(1, 1), "a")
+    surface = SurfacePresentation((Polygon("P", 4), Polygon("Q", 4)), (gluing,))
+
+    for boundary_pattern in LinePattern:
+        assert (
+            SurfaceDiagramPlanner.edge_pattern(surface, gluing.first, boundary_pattern)
+            is LinePattern.DOTTED
+        )
+        assert (
+            SurfaceDiagramPlanner.edge_pattern(surface, gluing.second, boundary_pattern)
+            is LinePattern.DOTTED
+        )
+
+
+def test_stacked_paths_get_the_required_curvature_lanes_and_display_styles() -> None:
+    interior = (
+        OrientedEdge(EdgeRef(0, 0)),
+        OrientedEdge(EdgeRef(0, 1)),
+    )
+    edge = (OrientedEdge(EdgeRef(0, 2)),)
+    surface = SurfacePresentation(
+        (Polygon("P", 4),),
+        (),
+        (
+            SurfacePath("p", interior),
+            SurfacePath("q", interior),
+            SurfacePath("r", edge),
+            SurfacePath("s", edge),
+        ),
+    )
+    config = load_rendering_config()
+    plan = SurfaceDiagramPlanner(config).plan(surface, random.Random(4))
+    interior_curvatures = [
+        curve.curvature for curve in plan.curves if not curve.segment.lies_on_edge
+    ]
+    edge_curvatures = [curve.curvature for curve in plan.curves if curve.segment.lies_on_edge]
+
+    assert interior_curvatures == [-32.0, 32.0]
+    assert edge_curvatures == [32.0, 54.0]
+    assert {curve.style.order_display for curve in plan.curves[:2]} == set(OrderDisplay)
+    assert plan.curves[0].style.color != plan.curves[1].style.color
+
+
+def test_diagram_style_rejects_paths_heavier_than_polygon_edges() -> None:
+    with pytest.raises(ValueError, match="no wider"):
+        DiagramStyle(Palette("white", "black", ("red",)), LinePattern.SOLID, 2, 3)
+
+
+def test_contractible_polygon_local_loop_is_drawn_as_its_directed_edge_run() -> None:
+    edge = EdgeRef(0, 0)
+    surface = SurfacePresentation(
+        (Polygon("P", 4),),
+        (),
+        (SurfacePath("p", (OrientedEdge(edge), OrientedEdge(edge, False))),),
+    )
+    plan = SurfaceDiagramPlanner(load_rendering_config()).plan(surface, random.Random(9))
+
+    assert len(plan.curves) == 2
+    assert all(curve.segment.lies_on_edge for curve in plan.curves)
+    assert [curve.segment.order for curve in plan.curves] == [1, 2]
+    assert [curve.curvature for curve in plan.curves] == [32.0, 54.0]
+
+
+def test_yaml_rendering_overrides_are_injected_through_the_container() -> None:
+    override = Path(__file__).with_name("rendering_override.yaml")
+    container = build_container(override)
+
+    config = container.resolve(SurfaceRenderingConfig)
+    planner = container.resolve(SurfaceDiagramPlanner)
+
+    assert config.geometry.side_length == 150
+    assert config.stroke.path_width == 1.1
+    assert planner.config is config
 
 
 def test_benchmark_generates_object_and_morphism_questions() -> None:
@@ -141,21 +211,6 @@ def test_benchmark_generates_object_and_morphism_questions() -> None:
         for problem in problems
     )
     assert benchmark.generate(seed=7, difficulty=8) == benchmark.generate(seed=7, difficulty=8)
-
-
-def test_incomplete_edge_identification_is_rejected() -> None:
-    with pytest.raises(ValueError, match="exactly twice"):
-        SurfacePresentation(
-            (_polygon(sides=3),),
-            (DirectedEdgeMark(EdgeRef(0, 0), "unpaired-mark", True),),
-        )
-
-
-def test_morphism_target_must_equal_its_declared_quotient() -> None:
-    source = SurfacePresentation((_polygon("A", 3), _polygon("B", 3)), ())
-    identification = EdgeIdentification(EdgeRef(0, 0), EdgeRef(1, 0), "g", False)
-    with pytest.raises(ValueError, match="target is not the quotient"):
-        BoundaryGluingMorphism(source, source, (identification,))
 
 
 def test_polygon_attachment_is_a_first_class_inclusion() -> None:
@@ -174,3 +229,41 @@ def test_polygon_attachment_is_a_first_class_inclusion() -> None:
 def test_difficulty_is_validated() -> None:
     with pytest.raises(ValueError, match="difficulty"):
         GenerationRequest(seed=0, difficulty=11)
+
+
+def test_domain_model_contains_only_combinatorial_data() -> None:
+    presentation = SurfacePresentation((Polygon("P", 5),), ())
+
+    assert presentation.polygons[0].sides == 5
+    assert not hasattr(presentation, "palette")
+    assert not hasattr(presentation.polygons[0], "vertices")
+
+
+def test_path_adjacency_and_homology_use_quotient_vertices() -> None:
+    torus = SurfacePresentation(
+        (Polygon("P", 4),),
+        (
+            EdgeGluing(EdgeRef(0, 0), EdgeRef(0, 2), "a", False),
+            EdgeGluing(EdgeRef(0, 1), EdgeRef(0, 3), "b", False),
+        ),
+        (SurfacePath("p", (OrientedEdge(EdgeRef(0, 0)),)),),
+    )
+    analyzer = SurfaceAnalyzer()
+    homology = analyzer.cellular_homology(torus)
+
+    assert torus.is_closed
+    assert analyzer.path_is_cycle(torus, torus.paths[0])
+    assert homology.h1_rank == 2
+    assert homology.h1_torsion == ()
+    assert len(analyzer.path_representative(torus, torus.paths[0])) == len(homology.cycle_basis)
+
+
+def test_an_edge_cannot_be_used_by_two_gluings() -> None:
+    with pytest.raises(ValueError, match="at most once"):
+        SurfacePresentation(
+            (Polygon("P", 4),),
+            (
+                EdgeGluing(EdgeRef(0, 0), EdgeRef(0, 1), "a"),
+                EdgeGluing(EdgeRef(0, 0), EdgeRef(0, 2), "b"),
+            ),
+        )

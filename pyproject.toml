@@ -1,6 +1,6 @@
 [project]
 authors = [{name = "Chshine1", email = "chshine@qq.com"}]
-dependencies = ["lagom>=2.7.7,<3"]
+dependencies = ["lagom>=2.7.7,<3", "matplotlib>=3.11.1,<4", "pyyaml>=6.0.2,<7"]
 name = "topology_benchmark"
 requires-python = ">= 3.14"
 version = "0.1.0"
@@ -34,9 +34,16 @@ format-check = "python -m ruff format --check ."
 test = "python -m pytest"
 check = { depends-on = ["typecheck", "lint", "format-check"] }
 
+[tool.pixi.feature.dev.dependencies]
+pixi-pycharm = ">=0.0.12,<0.0.13"
+
+[tool.pixi.dependencies]
+pixi-pycharm = "*"
+matplotlib = ">=3.11.1,<4"
+
 [tool.pyrefly]
 project-includes = ["src", "tests"]
-project-excludes = ["**/__pycache__"]
+project-excludes = ["**/__pycache__", ".pixi", "src/topology_benchmark/gluing_examples.py"]
 python-version = "3.14"
 python-interpreter-path = ".pixi/envs/dev/python.exe"
 
