@@ -1,48 +1,92 @@
 """Domain-independent HTTP demo for generated multimodal problems."""
 
+import html
 import json
+from collections.abc import Mapping
 from dataclasses import asdict
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Protocol
+from typing import Any, Protocol
 from urllib.parse import parse_qs, urlparse
 
 from topology_benchmark.core.models import Problem
 
 
-class ProblemProvider[AnswerT](Protocol):
+class ProblemProvider(Protocol):
     """The only capability the demo requires from a benchmark domain."""
 
-    def generate(self, *, seed: int, difficulty: int = 1) -> Problem[AnswerT]: ...
+    def generate(self, *, seed: int, difficulty: int = 1) -> Problem[Any]: ...
 
 
-class DemoApplication[AnswerT]:
+class DemoApplication:
     """Transport-neutral responses, separated from the HTTP server."""
 
-    def __init__(self, provider: ProblemProvider[AnswerT]) -> None:
+    def __init__(
+        self,
+        provider: ProblemProvider,
+        *,
+        providers: Mapping[str, ProblemProvider] | None = None,
+        default_domain: str = "default",
+    ) -> None:
         self._provider = provider
+        self._providers = dict(providers or {default_domain: provider})
+        if default_domain not in self._providers:
+            raise ValueError("default demo domain is not registered")
+        self.default_domain = default_domain
 
-    def problem_json(self, *, seed: int, difficulty: int) -> bytes:
-        problem = self._provider.generate(seed=seed, difficulty=difficulty)
+    @property
+    def domains(self) -> tuple[str, ...]:
+        return tuple(self._providers)
+
+    def problem_json(self, *, seed: int, difficulty: int, domain: str | None = None) -> bytes:
+        selected = domain or self.default_domain
+        try:
+            provider = self._providers[selected]
+        except KeyError as error:
+            choices = ", ".join(self.domains)
+            raise ValueError(f"unknown domain {selected!r}; choose one of: {choices}") from error
+        problem = provider.generate(seed=seed, difficulty=difficulty)
         return json.dumps(asdict(problem), ensure_ascii=False).encode()
 
     @staticmethod
-    def index_html() -> bytes:
-        return _INDEX_HTML.encode()
+    def index_html(
+        domains: tuple[str, ...] = ("surfaces", "polyhedral-nets"),
+        default_domain: str = "surfaces",
+    ) -> bytes:
+        options = "".join(
+            f'<option value="{html.escape(domain)}"'
+            f"{' selected' if domain == default_domain else ''}>"
+            f"{html.escape(domain)}</option>"
+            for domain in domains
+        )
+        return _INDEX_HTML.replace("__DOMAIN_OPTIONS__", options).encode()
 
 
-def serve_demo[AnswerT](
-    provider: ProblemProvider[AnswerT], *, host: str = "127.0.0.1", port: int = 8000
+def serve_demo(
+    provider: ProblemProvider,
+    *,
+    host: str = "127.0.0.1",
+    port: int = 8000,
+    providers: Mapping[str, ProblemProvider] | None = None,
+    default_domain: str = "default",
 ) -> None:
     """Serve the generic viewer until interrupted."""
 
-    application = DemoApplication(provider)
+    application = DemoApplication(
+        provider,
+        providers=providers,
+        default_domain=default_domain,
+    )
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:
             parsed = urlparse(self.path)
             if parsed.path == "/":
-                self._send(HTTPStatus.OK, "text/html; charset=utf-8", application.index_html())
+                self._send(
+                    HTTPStatus.OK,
+                    "text/html; charset=utf-8",
+                    application.index_html(application.domains, application.default_domain),
+                )
                 return
             if parsed.path == "/health":
                 self._send(HTTPStatus.OK, "application/json", b'{"status":"ok"}')
@@ -52,7 +96,12 @@ def serve_demo[AnswerT](
                     query = parse_qs(parsed.query)
                     seed = int(query.get("seed", ["0"])[0])
                     difficulty = int(query.get("difficulty", ["5"])[0])
-                    body = application.problem_json(seed=seed, difficulty=difficulty)
+                    domain = query.get("domain", [application.default_domain])[0]
+                    body = application.problem_json(
+                        seed=seed,
+                        difficulty=difficulty,
+                        domain=domain,
+                    )
                 except (TypeError, ValueError) as error:
                     body = json.dumps({"error": str(error)}).encode()
                     self._send(HTTPStatus.BAD_REQUEST, "application/json", body)
@@ -98,7 +147,7 @@ _INDEX_HTML = """<!doctype html>
     h2 { margin: 0; font-size: 1.1rem; }
     .controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; }
     label { display: grid; gap: 4px; font-size: .82rem; color: #52606d; }
-    input, button { font: inherit; padding: 8px 11px; border-radius: 7px;
+    input, select, button { font: inherit; padding: 8px 11px; border-radius: 7px;
       border: 1px solid #b8c2cc; background: white; }
     button { cursor: pointer; background: #174ea6; border-color: #174ea6; color: white; }
     button.secondary { background: white; color: #174ea6; }
@@ -118,6 +167,7 @@ _INDEX_HTML = """<!doctype html>
   <header>
     <h1>Topology Benchmark Demo</h1>
     <div class="controls">
+      <label>Domain <select id="domain">__DOMAIN_OPTIONS__</select></label>
       <label>Seed <input id="seed" type="number" value="0"></label>
       <label>Difficulty <input id="difficulty" type="range" min="1" max="10" value="5">
         <span id="difficulty-value">5</span></label>
@@ -163,29 +213,33 @@ _INDEX_HTML = """<!doctype html>
   }
   async function load(randomize) {
     if (randomize) byId('seed').value = crypto.getRandomValues(new Uint32Array(1))[0];
+    const domain = byId('domain').value;
     const seed = byId('seed').value, difficulty = byId('difficulty').value;
     byId('status').textContent = 'Generating…'; byId('answer').hidden = true; clearObjectUrls();
     try {
-      const endpoint = `/api/problem?seed=${encodeURIComponent(seed)}`
-        + `&difficulty=${difficulty}`;
+      const endpoint = `/api/problem?domain=${encodeURIComponent(domain)}`
+        + `&seed=${encodeURIComponent(seed)}&difficulty=${difficulty}`;
       const response = await fetch(endpoint); const problem = await response.json();
       if (!response.ok) throw new Error(problem.error || response.statusText);
       byId('question').textContent = problem.question;
       byId('problem-meta').textContent = metadata({seed: problem.seed, ...problem.metadata});
       byId('answer').textContent = metadata(problem.answer);
       byId('prompts').replaceChildren(...problem.prompts.map(renderPrompt));
-      history.replaceState(null, '', `/?seed=${encodeURIComponent(seed)}&difficulty=${difficulty}`);
+      history.replaceState(null, '', `/?domain=${encodeURIComponent(domain)}`
+        + `&seed=${encodeURIComponent(seed)}&difficulty=${difficulty}`);
       const subject = problem.metadata.subject || 'problem';
-      byId('status').textContent = `${subject} · seed ${problem.seed}`;
+      byId('status').textContent = `${domain} · ${subject} · seed ${problem.seed}`;
     } catch (error) { byId('status').textContent = error.message; }
   }
   byId('difficulty').addEventListener('input', event => {
     byId('difficulty-value').textContent = event.target.value;
   });
+  byId('domain').addEventListener('change', () => load(false));
   byId('regenerate').addEventListener('click', () => load(true));
   byId('replay').addEventListener('click', () => load(false));
   byId('reveal').addEventListener('click', () => byId('answer').hidden = !byId('answer').hidden);
   const initial = new URLSearchParams(location.search);
+  if (initial.has('domain')) byId('domain').value = initial.get('domain');
   if (initial.has('seed')) byId('seed').value = initial.get('seed');
   if (initial.has('difficulty')) byId('difficulty').value = initial.get('difficulty');
   byId('difficulty-value').textContent = byId('difficulty').value; load(false);

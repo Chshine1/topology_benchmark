@@ -6,6 +6,9 @@ from lagom import Container
 
 from topology_benchmark.core.composer import DefaultProblemComposer
 from topology_benchmark.core.protocols import ProblemComposer
+from topology_benchmark.domains.polyhedral_nets.analysis import PolyhedralNetAnalyzer
+from topology_benchmark.domains.polyhedral_nets.generation import RandomPolyhedralNetGenerator
+from topology_benchmark.domains.polyhedral_nets.representation import PolyhedralNetSvgRenderer
 from topology_benchmark.domains.surfaces.components.display import SurfaceDiagramPlanner
 from topology_benchmark.domains.surfaces.components.generation_config import (
     SurfaceGenerationConfig,
@@ -46,4 +49,7 @@ def build_container(
     container[SurfaceGenerator] = RandomSurfacePresentationGenerator(generation)
     container[SurfaceMorphismGenerator] = RandomSurfaceMorphismGenerator(generation)
     container[SurfaceRepresentation] = MatplotlibGluingDiagramRenderer
+    container[RandomPolyhedralNetGenerator] = RandomPolyhedralNetGenerator
+    container[PolyhedralNetAnalyzer] = PolyhedralNetAnalyzer
+    container[PolyhedralNetSvgRenderer] = PolyhedralNetSvgRenderer
     return container

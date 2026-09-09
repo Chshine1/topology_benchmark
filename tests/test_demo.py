@@ -1,6 +1,6 @@
 import json
 
-from topology_benchmark import SurfaceBenchmark, build_container
+from topology_benchmark import PolyhedralNetBenchmark, SurfaceBenchmark, build_container
 from topology_benchmark.application.demo import DemoApplication
 
 
@@ -20,7 +20,26 @@ def test_demo_page_has_regeneration_and_generic_media_rendering() -> None:
     page = DemoApplication.index_html().decode()
 
     assert "New random problem" in page
-    assert "/api/problem?seed=" in page
+    assert '<select id="domain">' in page
+    assert "/api/problem?domain=" in page
     assert "prompt.media_type.startsWith('image/')" in page
     assert "prompt.media_type.startsWith('audio/')" in page
     assert "Reveal ground truth" in page
+
+
+def test_demo_can_switch_between_registered_domains() -> None:
+    container = build_container()
+    surfaces = container.resolve(SurfaceBenchmark)
+    polyhedral_nets = container.resolve(PolyhedralNetBenchmark)
+    demo = DemoApplication(
+        surfaces,
+        providers={"surfaces": surfaces, "polyhedral-nets": polyhedral_nets},
+        default_domain="surfaces",
+    )
+
+    surface = json.loads(demo.problem_json(seed=5, difficulty=4, domain="surfaces"))
+    net = json.loads(demo.problem_json(seed=5, difficulty=4, domain="polyhedral-nets"))
+
+    assert surface["metadata"].get("domain") != "polyhedral-nets"
+    assert net["metadata"]["domain"] == "polyhedral-nets"
+    assert demo.domains == ("surfaces", "polyhedral-nets")
