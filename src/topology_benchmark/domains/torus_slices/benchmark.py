@@ -12,7 +12,7 @@ type TorusSliceAnswer = int | bool
 class TorusSlicesBenchmark:
     """Ask topological questions while revealing only finitely many parallel slices."""
 
-    profile_version = "torus-slices-v1"
+    profile_version = "torus-slices-v2"
 
     def __init__(
         self,
@@ -39,32 +39,46 @@ class TorusSlicesBenchmark:
         else:
             count = rng.randint(2, 4)
             linked = bool(rng.randrange(2))
-        observation = self._generator.generate(request, rng, count=count, linked=linked)
+        link_pattern = None
+        if linked and count >= 3 and difficulty >= 7:
+            pattern_choice = rng.random()
+            link_pattern = (
+                "chain" if pattern_choice < 0.4 else "complete" if pattern_choice < 0.8 else "pairs"
+            )
+        observation = self._generator.generate(
+            request,
+            rng,
+            count=count,
+            linked=linked,
+            link_pattern=link_pattern,
+        )
         linked_pairs = self._analyzer.linked_pairs(observation.family)
         if kind == "torus-count":
             question = (
                 "The panels are aligned horizontal sections of one hidden family of pairwise-"
-                "disjoint rigid round tori. How many tori are in the family?"
+                "disjoint tori with planar elliptic cores. How many tori are in the family?"
             )
             answer: TorusSliceAnswer = len(observation.family.tori)
         elif kind == "linked":
             question = (
-                "These aligned sections come from exactly two pairwise-disjoint rigid round "
-                "tori. Are their core circles linked?"
+                "These aligned sections come from exactly two pairwise-disjoint elliptic "
+                "tori. Are their core curves linked?"
             )
             answer = bool(linked_pairs)
         elif kind == "completely-unlinked":
             question = (
-                "Do these level sections force every pair of core circles to have linking "
+                "In the hidden generated family, does every pair of core curves have linking "
                 "number zero?"
             )
             answer = not linked_pairs
-        else:
+        elif kind == "linked-pair-count":
             question = (
-                "How many unordered pairs of the hidden tori have core circles with nonzero "
+                "How many unordered pairs of the hidden tori have core curves with nonzero "
                 "linking number?"
             )
             answer = len(linked_pairs)
+        else:
+            raise RuntimeError(f"unsupported torus-slice question kind: {kind}")
         sampling.note("intent.question-kind", kind)
         prompt = self._representation.render(
             observation, request, sampling.rng("render.level-sections")
@@ -82,7 +96,9 @@ class TorusSlicesBenchmark:
                 "generation_profile": self.profile_version,
                 "sampling_trace": sampling.trace_json(),
                 "pairwise_disjoint_certified": True,
-                "rigid_round_tori": True,
+                "elliptic_core_tori": True,
+                "rigid_round_tori": False,
+                "observation_perturbed": False,
                 "height_direction_shown": True,
                 "hidden_equations": True,
             },
@@ -96,4 +112,6 @@ class TorusSlicesBenchmark:
             return "linked" if choice < 0.65 else "torus-count"
         if difficulty <= 7:
             return "completely-unlinked" if choice < 0.5 else "linked-pair-count"
-        return "linked-pair-count" if choice < 0.75 else "completely-unlinked"
+        if difficulty == 8:
+            return "linked-pair-count" if choice < 0.75 else "completely-unlinked"
+        return "linked-pair-count" if choice < 0.72 else "completely-unlinked"

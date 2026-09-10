@@ -1,4 +1,4 @@
-"""Rigid round tori and their observed parallel-plane sections."""
+"""Circular core links, elliptic tube profiles, and parallel-plane sections."""
 
 import math
 from dataclasses import dataclass
@@ -68,17 +68,35 @@ class RoundCircle:
             ),
         )
 
+    def basis(self) -> tuple[Vector3, Vector3]:
+        return circle_basis(self.normal)
+
+    @property
+    def semi_major(self) -> float:
+        return self.radius
+
+    @property
+    def semi_minor(self) -> float:
+        return self.radius
+
+    @property
+    def max_radius(self) -> float:
+        return self.radius
+
+
+type CoreCurve = RoundCircle
+
 
 @dataclass(frozen=True, slots=True)
 class RoundTorus:
     """The boundary of a constant-radius tube around a round core circle."""
 
-    core: RoundCircle
+    core: CoreCurve
     tube_radius: float
 
     def __post_init__(self) -> None:
         if not 0 < self.tube_radius < self.core.radius:
-            raise ValueError("the tube radius must lie strictly between zero and the core radius")
+            raise ValueError("the tube radius must be smaller than the core radius")
 
     def implicit_value(self, point: Vector3) -> float:
         offset: Vector3 = tuple(a - b for a, b in zip(point, self.core.center, strict=True))  # type: ignore[assignment]
@@ -87,15 +105,52 @@ class RoundTorus:
         return (
             axial * axial
             + (math.sqrt(radial_squared) - self.core.radius) ** 2
-            - (self.tube_radius**2)
+            - self.tube_radius**2
         )
+
+    @property
+    def clearance_radius(self) -> float:
+        return self.tube_radius
+
+
+@dataclass(frozen=True, slots=True)
+class EllipticTorus:
+    """A rotated elliptical profile swept around a round planar core circle."""
+
+    core: RoundCircle
+    first_radius: float
+    second_radius: float
+    profile_angle: float = 0.0
+
+    def __post_init__(self) -> None:
+        if min(self.first_radius, self.second_radius) <= 0:
+            raise ValueError("elliptic profile semiaxes must be positive")
+        if self.clearance_radius >= self.core.radius:
+            raise ValueError("the elliptic profile must be smaller than the core radius")
+
+    def implicit_value(self, point: Vector3) -> float:
+        offset: Vector3 = tuple(a - b for a, b in zip(point, self.core.center, strict=True))  # type: ignore[assignment]
+        axial = dot(offset, self.core.normal)
+        radial_squared = max(0.0, dot(offset, offset) - axial * axial)
+        radial_offset = math.sqrt(radial_squared) - self.core.radius
+        cosine, sine = math.cos(self.profile_angle), math.sin(self.profile_angle)
+        first = cosine * radial_offset + sine * axial
+        second = -sine * radial_offset + cosine * axial
+        return (first / self.first_radius) ** 2 + (second / self.second_radius) ** 2 - 1
+
+    @property
+    def clearance_radius(self) -> float:
+        return max(self.first_radius, self.second_radius)
+
+
+type TorusComponent = RoundTorus | EllipticTorus
 
 
 @dataclass(frozen=True, slots=True)
 class TorusFamily:
     """A finite collection of pairwise-disjoint rigid round tori."""
 
-    tori: tuple[RoundTorus, ...]
+    tori: tuple[TorusComponent, ...]
 
     def __post_init__(self) -> None:
         if not self.tori:

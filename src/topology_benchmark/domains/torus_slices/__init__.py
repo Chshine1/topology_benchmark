@@ -1,9 +1,16 @@
 from .analysis import TorusFamilyAnalyzer
 from .benchmark import TorusSlicesBenchmark
 from .generation import RandomTorusSliceGenerator
-from .models import RoundCircle, RoundTorus, TorusFamily, TorusSliceObservation
+from .models import (
+    EllipticTorus,
+    RoundCircle,
+    RoundTorus,
+    TorusFamily,
+    TorusSliceObservation,
+)
 
 __all__ = [
+    "EllipticTorus",
     "RandomTorusSliceGenerator",
     "RoundCircle",
     "RoundTorus",

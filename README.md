@@ -137,24 +137,25 @@ tests.
 
 ## Torus-slice domain
 
-A `RoundTorus` is the boundary of a constant-radius tube around an embedded Euclidean
-`RoundCircle` in `R^3`. A generated `TorusFamily` contains one to four such tori. The construction
-uses separated unknots and Hopf-linked pairs, then applies a common rigid motion. Before a scene is
-accepted, a conservative distance bound certifies that every pair of closed tubes is disjoint.
+An `EllipticTorus` sweeps a rotated elliptical profile around a regular planar `RoundCircle` in
+`R^3`; `RoundTorus` is the circular-profile special case. Generated families independently vary the
+profile eccentricities and angles. They contain one to four tori and use separated unknots,
+Hopf-linked pairs, connected chains, or complete Hopf links in which every pair is linked. Before a
+scene is accepted, a conservative distance bound certifies that every pair of tubes is disjoint.
 
 The answerer does not see the core circles, their centers, radii, plane normals, implicit quartic
 equations, link template, or a perspective rendering. The prompt contains only several parallel
-plane intersections, arranged at a common scale in a common coordinate frame and labelled by
-height. Empty sections above and below the family are retained. More sections and more components
-appear as difficulty rises, so one must mentally track how the planar curves are born, merge,
-split, and move through space.
+plane intersections, arranged at a common scale in a common coordinate frame. Empty sections above
+and below the family are retained. More sections and more components appear as difficulty rises, so
+one must mentally track how the planar curves are born, merge, split, and move through space.
 
-Questions ask for the number of hidden tori, whether two core circles are linked, whether a family
-is completely unlinked, or the number of pairs with nonzero linking number. Ground-truth linking
-numbers are computed as oriented intersections of one core circle with the disk bounded by the
-other; they are not estimated from the picture. This first profile supplies rich finite samples for
-spatial inference but does not expose symbolic section equations or claim to enumerate every
-algebraic family compatible with a deliberately sparse observation.
+Questions ask for the number of hidden tori, whether two core curves are linked, whether a family is
+completely unlinked, or the number of linked pairs. Ground-truth linking numbers are computed as
+oriented intersections of one circular core with the disk bounded by the other; they are not
+estimated from the picture. The profile supplies rich finite samples for spatial inference but does
+not expose symbolic section equations or claim to enumerate every algebraic family compatible with
+a sparse observation. Shuffled ordering and missingness are intentionally not scored without an
+identifiability certificate.
 
 ## Surface domain
 

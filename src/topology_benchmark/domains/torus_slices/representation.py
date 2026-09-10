@@ -95,6 +95,7 @@ class TorusSliceSvgRenderer:
                 "level_count": len(obj.levels),
                 "common_scale": True,
                 "core_circles_shown": False,
+                "core_curves_shown": False,
                 "equations_shown": False,
                 "seeded_renderer": True,
             },
@@ -106,13 +107,27 @@ class TorusSliceSvgRenderer:
     ) -> tuple[float, float, float, float]:
         projected = []
         for torus in obj.family.tori:
-            extent = torus.core.radius + torus.tube_radius
+            major, minor = torus.core.basis()
+            x_extent = (
+                math.hypot(
+                    torus.core.semi_major * dot(major, first),
+                    torus.core.semi_minor * dot(minor, first),
+                )
+                + torus.clearance_radius
+            )
+            y_extent = (
+                math.hypot(
+                    torus.core.semi_major * dot(major, second),
+                    torus.core.semi_minor * dot(minor, second),
+                )
+                + torus.clearance_radius
+            )
             projected.append(
                 (
-                    dot(torus.core.center, first) - extent,
-                    dot(torus.core.center, first) + extent,
-                    dot(torus.core.center, second) - extent,
-                    dot(torus.core.center, second) + extent,
+                    dot(torus.core.center, first) - x_extent,
+                    dot(torus.core.center, first) + x_extent,
+                    dot(torus.core.center, second) - y_extent,
+                    dot(torus.core.center, second) + y_extent,
                 )
             )
         min_x = min(item[0] for item in projected)
