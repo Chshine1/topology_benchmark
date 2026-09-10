@@ -1,6 +1,11 @@
 import json
 
-from topology_benchmark import PolyhedralNetBenchmark, SurfaceBenchmark, build_container
+from topology_benchmark import (
+    PolyhedralNetBenchmark,
+    SurfaceBenchmark,
+    TorusSlicesBenchmark,
+    build_container,
+)
 from topology_benchmark.application.demo import DemoApplication
 
 
@@ -31,15 +36,22 @@ def test_demo_can_switch_between_registered_domains() -> None:
     container = build_container()
     surfaces = container.resolve(SurfaceBenchmark)
     polyhedral_nets = container.resolve(PolyhedralNetBenchmark)
+    torus_slices = container.resolve(TorusSlicesBenchmark)
     demo = DemoApplication(
         surfaces,
-        providers={"surfaces": surfaces, "polyhedral-nets": polyhedral_nets},
+        providers={
+            "surfaces": surfaces,
+            "polyhedral-nets": polyhedral_nets,
+            "torus-slices": torus_slices,
+        },
         default_domain="surfaces",
     )
 
     surface = json.loads(demo.problem_json(seed=5, difficulty=4, domain="surfaces"))
     net = json.loads(demo.problem_json(seed=5, difficulty=4, domain="polyhedral-nets"))
+    tori = json.loads(demo.problem_json(seed=5, difficulty=4, domain="torus-slices"))
 
     assert surface["metadata"].get("domain") != "polyhedral-nets"
     assert net["metadata"]["domain"] == "polyhedral-nets"
-    assert demo.domains == ("surfaces", "polyhedral-nets")
+    assert tori["metadata"]["domain"] == "torus-slices"
+    assert demo.domains == ("surfaces", "polyhedral-nets", "torus-slices")

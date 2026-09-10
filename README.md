@@ -5,9 +5,9 @@ topological reasoning. The framework separates mathematical objects, exact groun
 question selection, and graphic representation so that a problem is solved from its prompt rather
 than from generator metadata.
 
-The built-in domains are **compact surfaces presented by polygon-edge gluings** and **polyhedral
-nets of rigid regular faces**. They generate both single-object questions and relational questions
-about maps or pairs of unfoldings.
+The built-in domains are **compact surfaces presented by polygon-edge gluings**, **polyhedral
+nets**, and **round tori observed through parallel level sections**. They generate single-object
+questions as well as relational questions about maps, links, or pairs of unfoldings.
 
 ```text
 seed + difficulty + profile
@@ -30,6 +30,7 @@ seed + difficulty + profile
 - Exact surface validation and invariant computation from combinatorial data.
 - Integral cellular homology, including torsion and path coordinates in explicit bases.
 - Deterministic, model-ready SVG output and a local browser viewer.
+- Equation-free, aligned level-section prompts for spatial reconstruction of torus links.
 - YAML profiles for generation probabilities and rendering parameters.
 - Sampling traces and complexity counts for reproducibility and cohort auditing.
 - Protocol-based core types that can support additional mathematical domains and media types.
@@ -44,6 +45,7 @@ The project targets Python 3.14 and uses [Pixi](https://pixi.sh/) for its enviro
 pixi install -e dev
 pixi run -e dev python -m topology_benchmark --seed 42 --difficulty 8
 pixi run -e dev python -m topology_benchmark --domain polyhedral-nets --seed 42 --difficulty 8
+pixi run -e dev python -m topology_benchmark --domain torus-slices --seed 42 --difficulty 8
 pixi run -e dev test
 pixi run -e dev check
 ```
@@ -56,19 +58,20 @@ pixi run -e dev python -m topology_benchmark --serve --difficulty 5
 ```
 
 Then open `http://127.0.0.1:8000`. The viewer can generate a new seed, replay a seed at a selected
-difficulty, switch between the surface and polyhedral-net domains, show all prompts, and reveal the
-exact answer. `--domain polyhedral-nets` selects the initially displayed domain but does not disable
-the switch. The server also exposes:
+difficulty, switch among the domains, show all prompts, and reveal the exact answer. A `--domain`
+selection changes the initially displayed domain but does not disable the switch. The server also
+exposes:
 
 - `GET /health`
 - `GET /api/problem?domain=polyhedral-nets&seed=42&difficulty=8`
+- `GET /api/problem?domain=torus-slices&seed=42&difficulty=8`
 
 Useful CLI options are:
 
 ```text
 --seed INTEGER
 --difficulty {1,...,10}
---domain {surfaces,polyhedral-nets}
+--domain {surfaces,polyhedral-nets,torus-slices}
 --serve
 --host HOST
 --port PORT
@@ -131,6 +134,27 @@ intrinsic isometry after each completion is certified unique. Faces are drawn to
 source-family names, hidden seams, completion counts, and answer-derived geometry are not exposed
 in metadata. Legacy regular-face models remain available for direct API callers and regression
 tests.
+
+## Torus-slice domain
+
+A `RoundTorus` is the boundary of a constant-radius tube around an embedded Euclidean
+`RoundCircle` in `R^3`. A generated `TorusFamily` contains one to four such tori. The construction
+uses separated unknots and Hopf-linked pairs, then applies a common rigid motion. Before a scene is
+accepted, a conservative distance bound certifies that every pair of closed tubes is disjoint.
+
+The answerer does not see the core circles, their centers, radii, plane normals, implicit quartic
+equations, link template, or a perspective rendering. The prompt contains only several parallel
+plane intersections, arranged at a common scale in a common coordinate frame and labelled by
+height. Empty sections above and below the family are retained. More sections and more components
+appear as difficulty rises, so one must mentally track how the planar curves are born, merge,
+split, and move through space.
+
+Questions ask for the number of hidden tori, whether two core circles are linked, whether a family
+is completely unlinked, or the number of pairs with nonzero linking number. Ground-truth linking
+numbers are computed as oriented intersections of one core circle with the disk bounded by the
+other; they are not estimated from the picture. This first profile supplies rich finite samples for
+spatial inference but does not expose symbolic section equations or claim to enumerate every
+algebraic family compatible with a deliberately sparse observation.
 
 ## Surface domain
 

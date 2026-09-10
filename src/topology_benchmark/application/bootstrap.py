@@ -32,6 +32,9 @@ from topology_benchmark.domains.surfaces.ports import (
     SurfaceMorphismGenerator,
     SurfaceRepresentation,
 )
+from topology_benchmark.domains.torus_slices.analysis import TorusFamilyAnalyzer
+from topology_benchmark.domains.torus_slices.generation import RandomTorusSliceGenerator
+from topology_benchmark.domains.torus_slices.representation import TorusSliceSvgRenderer
 
 
 def build_container(
@@ -52,4 +55,7 @@ def build_container(
     container[RandomPolyhedralNetGenerator] = RandomPolyhedralNetGenerator
     container[PolyhedralNetAnalyzer] = PolyhedralNetAnalyzer
     container[PolyhedralNetSvgRenderer] = PolyhedralNetSvgRenderer
+    container[RandomTorusSliceGenerator] = RandomTorusSliceGenerator
+    container[TorusFamilyAnalyzer] = TorusFamilyAnalyzer
+    container[TorusSliceSvgRenderer] = TorusSliceSvgRenderer
     return container

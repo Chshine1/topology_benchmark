@@ -50,7 +50,7 @@ class DemoApplication:
 
     @staticmethod
     def index_html(
-        domains: tuple[str, ...] = ("surfaces", "polyhedral-nets"),
+        domains: tuple[str, ...] = ("surfaces", "polyhedral-nets", "torus-slices"),
         default_domain: str = "surfaces",
     ) -> bytes:
         options = "".join(

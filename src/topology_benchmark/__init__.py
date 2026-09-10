@@ -7,11 +7,13 @@ from topology_benchmark.application.services import (
     SurfaceBenchmark,
 )
 from topology_benchmark.core.models import Problem
+from topology_benchmark.domains.torus_slices.benchmark import TorusSlicesBenchmark
 
 __all__ = [
     "PolyhedralNetBenchmark",
     "PolyhedralNetsBenchmark",
     "Problem",
     "SurfaceBenchmark",
+    "TorusSlicesBenchmark",
     "build_container",
 ]

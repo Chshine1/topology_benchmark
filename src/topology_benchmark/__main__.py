@@ -7,6 +7,7 @@ from dataclasses import asdict
 from topology_benchmark.application.bootstrap import build_container
 from topology_benchmark.application.demo import serve_demo
 from topology_benchmark.application.services import PolyhedralNetsBenchmark, SurfaceBenchmark
+from topology_benchmark.domains.torus_slices.benchmark import TorusSlicesBenchmark
 
 
 def main() -> None:
@@ -15,7 +16,7 @@ def main() -> None:
     parser.add_argument("--difficulty", type=int, choices=range(1, 11), default=1)
     parser.add_argument(
         "--domain",
-        choices=("surfaces", "polyhedral-nets"),
+        choices=("surfaces", "polyhedral-nets", "torus-slices"),
         default="surfaces",
         help="mathematical problem domain",
     )
@@ -38,6 +39,7 @@ def main() -> None:
     providers = {
         "surfaces": container.resolve(SurfaceBenchmark),
         "polyhedral-nets": container.resolve(PolyhedralNetsBenchmark),
+        "torus-slices": container.resolve(TorusSlicesBenchmark),
     }
     benchmark = providers[args.domain]
     if args.serve:
