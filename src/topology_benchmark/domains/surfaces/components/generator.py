@@ -83,10 +83,38 @@ class RandomSurfacePresentationGenerator(SurfaceGenerator):
             except ValueError:
                 continue
             paths = self._paths(candidate, context)
+            completed = SurfacePresentation(polygons, gluings, paths)
+            if context.intent.question_kind == "path-representative":
+                analyzer = SurfaceAnalyzer()
+                facts = analyzer.analyze(completed)
+                generators = analyzer.h1_edge_generators(completed)
+                tagged_edges = {
+                    edge
+                    for coefficients, _ in generators
+                    for edge, coefficient in enumerate(coefficients)
+                    if coefficient
+                }
+                if (
+                    len(facts.components) != 1
+                    or not 1 <= len(generators) <= 3
+                    or len(tagged_edges) > 8
+                    or not any(analyzer.path_homology_coefficients(completed, paths[0]))
+                ):
+                    continue
             context.sampling.note("surface.relaxed", False)
-            return SurfacePresentation(polygons, gluings, paths)
+            return completed
 
         context.sampling.note("surface.relaxed", True, noise=True)
+        if context.intent.question_kind == "path-representative":
+            fallback = SurfacePresentation(
+                (Polygon("P", 4),),
+                (
+                    EdgeGluing(EdgeRef(0, 0), EdgeRef(0, 2), "a"),
+                    EdgeGluing(EdgeRef(0, 1), EdgeRef(0, 3), "b"),
+                ),
+                (SurfacePath("p", (OrientedEdge(EdgeRef(0, 0)),)),),
+            )
+            return fallback
         sides = 3 + context.sampling.rng("surface.fallback").randrange(4)
         fallback = SurfacePresentation((Polygon("P", sides),), ())
         return SurfacePresentation(fallback.polygons, (), self._paths(fallback, context))
@@ -148,7 +176,7 @@ class RandomSurfacePresentationGenerator(SurfaceGenerator):
                 noise=True,
             )
         extra: bool = False
-        if focused:
+        if focused and context.intent.question_kind != "path-representative":
             extra = context.sampling.sample(
                 "paths.extra",
                 BernoulliDistribution(self.config.noise_probability),

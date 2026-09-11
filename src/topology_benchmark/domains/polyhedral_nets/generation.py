@@ -79,9 +79,17 @@ class RandomPolyhedralNetGenerator:
             return first, self._unfold(first.source, rng)
         for _ in range(20):
             second = self.generate(request, rng)
-            if self._source_signature(first.source) != self._source_signature(second.source):
+            same_visible_inventory = (
+                first.source is not None
+                and second.source is not None
+                and first.source.name == second.source.name
+                and tuple(map(len, first.source.faces)) == tuple(map(len, second.source.faces))
+            )
+            if same_visible_inventory and self._source_signature(
+                first.source
+            ) != self._source_signature(second.source):
                 return first, second
-        raise RuntimeError("could not generate distinct polyhedral sources")
+        raise RuntimeError("could not generate distinct sources with matching face inventories")
 
     @staticmethod
     def _source_signature(source: Polyhedron3D | None) -> tuple[object, ...]:

@@ -17,16 +17,21 @@ overlap. Faces may be irregular and need not share a common edge length.
 Reveal as little as the question needs. Provide a to-scale net and label only queried faces, edges, or corners. When the
 visible information is insufficient, show a minimal number of matching seam hints. Ask questions such as:
 
-- Which boundary edges or corners coincide after folding?
-- Do two faces share an edge, only a vertex, or neither?
+- How are several marked corners partitioned into folded vertices?
+- What is the edge-count distance, or number of shortest paths, between two marked cells?
 - Which reconstructed vertex has greater angular defect?
-- With one face fixed as a base, which marked vertex is highest?
 
 ## Core Principle: Certified Observability
 
 Unlabelled boundary edges can admit several abstract gluings. Enumerate all pairings compatible with visible metric data,
-partial hints, spherical topology, and the convexity promise. Emit an ordinary question only when its answer is identical
-for every remaining completion. Extrinsic coordinate questions require a unique completion.
+its finite rendering precision, partial hints, spherical topology, and the convexity promise. Emit an ordinary question
+only when its answer is identical for every remaining completion. Extrinsic coordinate questions require a unique
+completion. Exact source-length differences below the visual tolerance cannot be used to certify an answer.
+
+Marks communicate premises rather than conclusions: letters identify queried objects, colored edge dots disclose only
+selected seam pairs, and curvature questions display all corner angles to a stated precision. Difficulty is measured by
+the remaining folding inference, with more scaffolding at easier levels. Comparisons must share a drawing scale and show
+face correspondences; trivial negative comparisons with visibly incompatible face inventories are not sampled.
 
 At a quotient vertex, the incident face-angle sum determines intrinsic discrete curvature:
 

@@ -1,9 +1,7 @@
-"""Questions about objects and first-class quotient morphisms."""
+"""Questions about polygonal surface objects."""
 
-from topology_benchmark.domains.surfaces.models import (
-    SurfaceMorphism,
-    SurfacePresentation,
-)
+from topology_benchmark.domains.surfaces.analysis import SurfaceAnalyzer
+from topology_benchmark.domains.surfaces.models import SurfacePresentation
 
 
 def object_questions(surface: SurfacePresentation) -> tuple[str, ...]:
@@ -28,44 +26,42 @@ def formulate_object(surface: SurfacePresentation, kind: str, path_index: int = 
         "orientable": "Is every connected component of the quotient surface orientable?",
         "homology-groups": "Compute H_0, H_1, and H_2 with integer coefficients.",
         "path-is-cycle": f"Does the displayed path {path.name if path else 'p'} define a 1-cycle?",
-        "path-representative": (
-            f"Express path {path.name if path else 'p'} in the displayed cellular cycle basis "
-            "and reduce it using the Smith relations."
-        ),
+        "path-representative": _path_coordinate_question(surface, path_index),
     }
     return questions[kind]
 
 
-def morphism_questions(morphism: SurfaceMorphism) -> tuple[str, ...]:
-    del morphism
-    return (
-        "euler-change",
-        "boundary-change",
-        "component-change",
-        "target-homology",
-        "map-injective",
-        "map-surjective",
-        "homology-isomorphism",
-        "target-orientable",
+def _path_coordinate_question(surface: SurfacePresentation, path_index: int) -> str:
+    analyzer = SurfaceAnalyzer()
+    generators = analyzer.h1_edge_generators(surface)
+    used_edges = sorted(
+        edge
+        for edge in range(len(analyzer.cellular_homology(surface).edge_basis))
+        if any(coefficients[edge] for coefficients, _ in generators)
     )
-
-
-def formulate_morphism(kind: str) -> str:
-    questions = {
-        "euler-change": "For the displayed quotient map, what is χ(target) - χ(source)?",
-        "boundary-change": (
-            "For the displayed quotient map, what is b(target) - b(source), where b counts "
-            "boundary components?"
-        ),
-        "component-change": (
-            "For the displayed quotient map, what is the change in connected-component count?"
-        ),
-        "target-homology": "Compute the integral homology groups of the quotient target.",
-        "map-injective": "Is the displayed map injective?",
-        "map-surjective": "Is the displayed map surjective?",
-        "homology-isomorphism": (
-            "Does the displayed map induce isomorphisms on all homology groups?"
-        ),
-        "target-orientable": "Is every component of the quotient target orientable?",
-    }
-    return questions[kind]
+    edge_tags = {edge: index + 1 for index, edge in enumerate(used_edges)}
+    definitions = []
+    for index, (coefficients, order) in enumerate(generators, start=1):
+        terms = []
+        for edge, coefficient in enumerate(coefficients):
+            if not coefficient:
+                continue
+            magnitude = abs(coefficient)
+            tag = edge_tags[edge]
+            term = f"e{tag}" if magnitude == 1 else f"{magnitude}e{tag}"
+            if not terms:
+                terms.append(term if coefficient > 0 else f"-{term}")
+            else:
+                terms.append((" + " if coefficient > 0 else " - ") + term)
+        expression = "".join(terms) or "0"
+        suffix = " (infinite order)" if order is None else f" (order {order})"
+        definitions.append(f"h{index} = {expression}{suffix}")
+    decomposition = "; ".join(definitions) if definitions else "H_1 = 0"
+    generator_names = ", ".join(f"h{index}" for index in range(1, len(generators) + 1))
+    path_name = surface.paths[path_index].name if surface.paths else "p"
+    return (
+        "Each tagged arrow e1, e2, ... is the shown orientation of one quotient edge. "
+        f"Use the ordered generators of the invariant-factor decomposition of H_1 given by "
+        f"{decomposition}. Give only the coefficient tuple of {path_name} in "
+        f"({generator_names}), with torsion coefficients reduced to their least nonnegative values."
+    )

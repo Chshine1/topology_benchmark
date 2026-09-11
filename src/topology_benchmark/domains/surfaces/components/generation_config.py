@@ -23,7 +23,6 @@ class AnchoredValue:
 
 @dataclass(frozen=True, slots=True)
 class DifficultyProfile:
-    morphism_probability: AnchoredValue
     global_question_weight: AnchoredValue
     classification_question_weight: AnchoredValue
     path_question_weight: AnchoredValue
@@ -42,7 +41,6 @@ class SurfaceGenerationConfig:
     retry_limit: int
     difficulty: DifficultyProfile
     object_questions: dict[str, tuple[tuple[str, float], ...]]
-    morphism_questions: dict[str, tuple[tuple[str, float], ...]]
     morphism_family_weights: dict[str, AnchoredValue]
     morphism_affinity: dict[str, dict[str, float]]
 
@@ -54,7 +52,6 @@ class SurfaceGenerationConfig:
         if self.retry_limit < 1:
             raise ValueError("generation.retry_limit must be positive")
         probability_profiles = (
-            self.difficulty.morphism_probability,
             self.difficulty.side_continuation,
             self.difficulty.gluing_density,
             self.difficulty.path_continuation,
@@ -97,7 +94,6 @@ def load_generation_config(override_path: str | Path | None = None) -> SurfaceGe
         _number(root, "noise_probability"),
         _integer(root, "retry_limit"),
         DifficultyProfile(
-            _anchors(difficulty, "morphism_probability"),
             _anchors(question_weights, "global"),
             _anchors(question_weights, "classification"),
             _anchors(question_weights, "path"),
@@ -112,7 +108,6 @@ def load_generation_config(override_path: str | Path | None = None) -> SurfaceGe
             _anchors(scalar, "visual_budget"),
         ),
         _question_groups(_section(questions, "object")),
-        _question_groups(_section(questions, "morphism")),
         {
             key: _anchors_value(value, f"morphisms.families.{key}")
             for key, value in _section(morphisms, "families").items()

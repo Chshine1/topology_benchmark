@@ -1,10 +1,9 @@
 generation:
-  profile_version: "surface-v1"
+  profile_version: "surface-v2"
   noise_probability: 0.075
   retry_limit: 250
 
   difficulty:
-    morphism_probability: {1: 0.05, 4: 0.20, 7: 0.40, 10: 0.50}
     question_family_weights:
       global: {1: 0.75, 4: 0.55, 7: 0.35, 10: 0.20}
       classification: {1: 0.20, 4: 0.30, 7: 0.35, 10: 0.40}
@@ -33,18 +32,6 @@ generation:
       path:
         path-is-cycle: 1.0
         path-representative: 1.0
-    morphism:
-      relational:
-        euler-change: 1.0
-        boundary-change: 1.2
-        component-change: 1.2
-        map-injective: 0.6
-        map-surjective: 0.6
-        homology-isomorphism: 1.4
-      target-only:
-        target-homology: 1.0
-        target-orientable: 1.0
-
   morphisms:
     families:
       full-disk-boundary: {1: 0.35, 4: 0.18, 7: 0.06, 10: 0.02}

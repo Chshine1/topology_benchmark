@@ -7,7 +7,7 @@ than from generator metadata.
 
 The built-in domains are **compact surfaces presented by polygon-edge gluings**, **polyhedral
 nets**, and **round tori observed through parallel level sections**. They generate single-object
-questions as well as relational questions about maps, links, or pairs of unfoldings.
+questions as well as relational questions about links or pairs of unfoldings.
 
 ```text
 seed + difficulty + profile
@@ -16,7 +16,7 @@ seed + difficulty + profile
      question intent
             |
             v
- mathematical object/map ---> exact analyzer ---> ground-truth answer
+ mathematical object ---> exact analyzer ---> ground-truth answer
             |
             v
      display planning ---> deterministic SVG prompt
@@ -26,7 +26,7 @@ seed + difficulty + profile
 
 - Seeded, difficulty-controlled generation on a scale from 1 to 10.
 - Intent-first sampling: the question family is selected before a compatible instance is built.
-- Object problems with one diagram and morphism problems with source and target diagrams.
+- Object problems with one or more visual observations.
 - Exact surface validation and invariant computation from combinatorial data.
 - Integral cellular homology, including torsion and path coordinates in explicit bases.
 - Deterministic, model-ready SVG output and a local browser viewer.
@@ -115,25 +115,30 @@ its `profile_version`.
 
 ## Polyhedral-net domain
 
-The v2 domain starts from a real convex `Polyhedron3D` with rational coordinates and possibly
+The v6 domain starts from a real convex `Polyhedron3D` with rational coordinates and possibly
 irregular polygonal faces. It validates the closed oriented boundary and exact convex support
 planes, chooses a random face-dual spanning tree, develops the faces into the plane, and rejects
 overlapping layouts. `PolyhedralFolding` keeps the source and closing seams away from the renderer.
 
-Before emitting a question, the analyzer enumerates every equal-length boundary pairing compatible
-with the visible hints. It retains pairings that form a spherical manifold with positive angular
-defect. An ordinary question is emitted only when every retained completion gives the same answer;
-hard extrinsic questions require a unique completion. If necessary, the generator reveals a small
-number of true seam pairs as matching colored dots until this condition holds.
+Before emitting a question, the analyzer enumerates every boundary pairing compatible with the
+visible hints and a finite visual tolerance on drawn edge lengths. Thus a small difference known
+only to the source geometry cannot silently disambiguate a picture. It retains pairings that form a
+spherical manifold with positive angular defect. An ordinary question is emitted only when every
+retained completion gives the same answer; hard extrinsic questions require a unique completion.
+If necessary, the generator reveals a small number of true seam pairs as matching colored dots.
+Scaffolding decreases with difficulty rather than treating missing information as difficulty.
 
-Questions use sparse labels and ask for spatial relations: which edges or corners coincide, whether
-two non-adjacent planar faces meet after folding, how many faces meet at a vertex, which marked
-vertex has greater discrete curvature, and—after anchoring a base face—which marked vertex is
-highest. At the highest difficulties, two independently developed nets may also be compared for
-intrinsic isometry after each completion is certified unique. Faces are drawn to scale, but
-source-family names, hidden seams, completion counts, and answer-derived geometry are not exposed
-in metadata. Legacy regular-face models remain available for direct API callers and regression
-tests.
+Questions use sparse labels and ask for complete partitions of marked corners into folded vertices,
+distances and shortest-path counts between marked vertices, edges, or faces in the folded
+1-skeleton, seam matches, vertex degree, and discrete-curvature comparisons. Curvature prompts show
+every planar corner angle, rounded to the stated precision, and reject
+near-tied defect comparisons. Extrinsic height questions are withheld because a flat net does not
+make the required dihedral reconstruction sufficiently readable.
+Two-net isometry generation is withheld until hard negative examples can be built from the same
+rigid panel kit; the compatibility API renders such comparisons with face correspondences and one
+shared scale. Source-family names, hidden seams, completion counts, and answer-derived geometry are
+not exposed in metadata. Legacy regular-face models remain available for direct API callers and
+regression tests.
 
 ## Torus-slice domain
 
@@ -196,11 +201,11 @@ The current question catalog is:
 | --- | --- | --- |
 | Surface | Global | Euler characteristic; boundary-component count; connected-component count |
 | Surface | Classification | orientability; integral `H_0`, `H_1`, and `H_2` |
-| Surface | Path | whether a displayed path is a cycle; its cellular/Smith representative |
-| Morphism | Relational | changes in Euler characteristic, boundary count, or component count; injectivity; surjectivity; homology isomorphism |
-| Morphism | Target-only noise | target homology; target orientability |
+| Surface | Path | whether a displayed path is a cycle; its coefficients in a displayed homology basis |
 
-Morphism problems currently use two first-class arrow types:
+Morphism questions are currently withheld from benchmark sampling. The existing construction API
+remains available for developing induced-map questions with explicit source/target correspondences
+and displayed homology bases. It contains two first-class arrow types:
 
 - `BoundaryGluingMorphism`: a quotient formed by pairing previously unglued source sides.
 - `PolygonAttachmentMorphism`: an inclusion formed by attaching one new polygon along a source side.
@@ -227,8 +232,11 @@ normal form, cross-checked using determinantal divisors. The result exposes:
 - the integer coordinate transformation into that basis;
 - ranks and torsion for `H0`, `H1`, and `H2`.
 
-A cyclic displayed path is converted to coordinates in the same basis and reduced by the same
-relations. The answer includes the bases and coordinates because a Smith basis need not be unique.
+For a path-coordinate question, tagged arrows `e1`, `e2`, ... identify chosen oriented quotient
+edges. The prompt directly defines ordered generators for the invariant-factor decomposition of
+`H1` as integer edge chains, such as `h1 = e1 - e3 + e4`, and states the order of each torsion
+generator. Only the queried path is drawn as a path. The exact answer is its coefficient tuple in
+those generators, with torsion coordinates canonically reduced.
 
 ## Generation profiles
 
@@ -236,17 +244,15 @@ Defaults live in
 `src/topology_benchmark/domains/surfaces/generation.yaml`. Values specified at difficulty anchors
 1, 4, 7, and 10 are linearly interpolated. The profile controls:
 
-- object-versus-morphism probability and question-family weights;
+- object question-family weights;
 - polygon counts, side-count continuation, and gluing density;
 - path-length continuation and visual complexity budgets;
-- morphism-family weights and question-to-family affinities;
+- dormant morphism-family settings retained for induced-map research;
 - rare intentional noise and retry limits.
 
-Affinities are preferences rather than exclusions. By default, incidental paths and target-only
-questions about a displayed morphism each occur at a low 7.5% noise rate. Path lengths follow a
-truncated geometric distribution, and simple two-disc sphere quotients become rare at high
-difficulty. Current display-safety caps are four polygons, eight sides per polygon, and seven total
-path segments.
+Incidental paths occur at a low 7.5% noise rate. Path lengths follow a truncated geometric
+distribution. Current display-safety caps are four polygons, eight sides per polygon, and seven
+query-path segments; path-coordinate prompts tag at most eight quotient edges.
 
 An override YAML is recursively layered over the defaults, so it only needs to contain changed
 values:
@@ -256,7 +262,8 @@ generation:
   profile_version: "surface-v2"
   noise_probability: 0.05
   difficulty:
-    morphism_probability: {1: 0.02, 4: 0.15, 7: 0.35, 10: 0.55}
+    question_family_weights:
+      path: {1: 0.10, 4: 0.20, 7: 0.35, 10: 0.50}
 ```
 
 Use it from Python or the CLI:
@@ -330,6 +337,81 @@ questions, representations, and composition. A new problem domain should preserv
 boundary: the renderer receives a mathematical object but the object must not contain the answer or
 display-specific geometry. Exact answers should be computed independently of how the prompt is
 drawn.
+
+## Dynamic evaluation pipeline
+
+The pipeline creates a new dataset at run time, optionally sends its public prompts to a model,
+and scores the returned answers. Copy `pipeline.example.yaml` and configure the run size, weighted
+domain mixture, internal generation levels, and optional question-kind mixture. Generation levels
+retain the existing generator controls but are deliberately absent from public examples and result
+tables: they are not presented as validated measurements of difficulty.
+
+Omit `run.seed` for an unpredictable 128-bit seed. The resolved seed is written to the private run
+manifest, so the run can later be reproduced by putting that value into the configuration. Item
+seeds are derived independently from the root seed and item position. Target question kinds use
+deterministic rejection sampling; an incompatible configuration fails with the kinds it actually
+observed instead of silently changing the requested distribution.
+
+Generate a dataset without making API calls:
+
+```powershell
+pixi run -e dev python -m topology_benchmark.pipeline pipeline.example.yaml --generate-only
+```
+
+Run the configured provider and score its responses:
+
+```powershell
+pixi run -e dev python -m topology_benchmark.pipeline pipeline.example.yaml
+```
+
+Each run has a content-derived identifier and writes a separate directory containing:
+
+| Artifact | Contents |
+| --- | --- |
+| `dataset.public.jsonl` | IDs, domains, questions, and relative media paths |
+| `media/` | The SVG prompts sent to or published for answerers |
+| `ground_truth.private.jsonl` | Answers, generator seeds, and full generator metadata |
+| `manifest.private.json` | Resolved root seed, configuration, profile versions, and realized mix |
+| `predictions.jsonl` | Raw responses, extracted answers, correctness, and API errors |
+| `summary.json` | Overall and per-question-kind accuracy plus failed-request count |
+
+The included `fixed` provider is an offline wiring test. For an API with the OpenAI Chat
+Completions request shape, replace the provider block with:
+
+```yaml
+provider:
+  kind: openai-compatible
+  base_url: https://provider.example/v1
+  model: provider-model-id
+  api_key_env: BENCHMARK_API_KEY
+  timeout_seconds: 60
+  max_retries: 2
+```
+
+Set the key only in the process environment; it is never read from YAML or written to run
+artifacts. The adapter sends multimodal `messages` to `POST {base_url}/chat/completions` and asks
+the model to finish with `FINAL_ANSWER: ...`. It currently sends the native SVG as a base64 data
+URL. If an available API accepts only PNG or uses a different schema, implement a `ModelProvider`
+adapter in `pipeline/providers.py`; PNG rasterization should happen at that boundary so the
+generated mathematical instance stays unchanged.
+
+Before connecting a tutor-provided API, obtain its base URL, model identifier, authentication
+method, multimodal request/response example, accepted image MIME types and size limits, rate limits,
+and available request budget. An OpenAI-compatible endpoint with native SVG support needs only the
+configuration above. Other APIs need a small provider adapter; SVG-incompatible APIs also need an
+SVG-to-PNG dependency or service.
+
+To test the pipeline itself:
+
+```powershell
+pixi run -e dev python -m pytest tests/test_pipeline.py
+pixi run -e dev test
+pixi run -e dev check
+```
+
+Keep `ground_truth.private.jsonl` and `manifest.private.json` away from the evaluated model. Fresh
+generation reduces exposure to memorized instances, but it does not prevent reconstruction by a
+party that has the generator and the private root seed.
 
 ## Development
 

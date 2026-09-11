@@ -154,13 +154,21 @@ class PolyhedralNetAnalyzer:
         return False
 
     def enumerate_locally_convex_pairings(
-        self, net: PolyhedralNet, *, max_solutions: int | None = None
+        self,
+        net: PolyhedralNet,
+        *,
+        max_solutions: int | None = None,
+        relative_length_tolerance: float = 0.0,
     ) -> tuple[tuple[EdgePair, ...], ...]:
-        """Enumerate equal-length boundary pairings passing exact local closure checks.
+        """Enumerate visually compatible boundary pairings passing local closure checks.
 
         This deliberately tests intrinsic closure and local convexity; it does not claim to
-        simulate collision-free rigid motion in three-space.
+        simulate collision-free rigid motion in three-space. By default edge metrics must be
+        exactly equal. A positive tolerance models the finite precision of a rendered diagram:
+        edges whose displayed lengths cannot reliably be distinguished remain candidates.
         """
+        if relative_length_tolerance < 0:
+            raise ValueError("relative length tolerance cannot be negative")
         hinted_edges = {edge for pair in net.seam_hints for edge in (pair.first, pair.second)}
         boundary = tuple(edge for edge in net.boundary_edges if edge not in hinted_edges)
         if len(boundary) % 2:
@@ -178,7 +186,10 @@ class PolyhedralNetAnalyzer:
             first = remaining[0]
             for index in range(1, len(remaining)):
                 second = remaining[index]
-                if net.edge_metric(first) != net.edge_metric(second):
+                first_length = net.edge_length(first)
+                second_length = net.edge_length(second)
+                tolerance = relative_length_tolerance * max(first_length, second_length)
+                if abs(first_length - second_length) > tolerance:
                     continue
                 visit(
                     remaining[1:index] + remaining[index + 1 :],

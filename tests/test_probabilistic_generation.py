@@ -70,14 +70,9 @@ def test_intent_cohorts_follow_difficulty_and_keep_noise_rare() -> None:
         )
 
     easy, hard = cohort(1), cohort(10)
-    easy_morphisms = easy["relational"] + easy["target-only"]
-    hard_morphisms = hard["relational"] + hard["target-only"]
-
-    assert easy_morphisms < 0.08 * 2000
-    assert hard_morphisms > 0.45 * 2000
+    assert easy["relational"] + easy["target-only"] == 0
+    assert hard["relational"] + hard["target-only"] == 0
     assert hard["path"] > easy["path"] * 3
-    assert 0.04 < easy["target-only"] / easy_morphisms < 0.12
-    assert 0.04 < hard["target-only"] / hard_morphisms < 0.12
 
 
 def test_paths_are_question_aligned_but_allow_low_rate_noise() -> None:
@@ -143,9 +138,9 @@ def test_generation_yaml_is_layered_and_injected() -> None:
     config = container.resolve(SurfaceGenerationConfig)
     benchmark = container.resolve(SurfaceBenchmark)
 
-    assert config.profile_version == "test-morphism-only"
+    assert config.profile_version == "test-object-profile"
     assert config.difficulty.path_maximum.at(10) == 7
     problem = benchmark.generate(seed=3, difficulty=1)
-    assert problem.metadata["subject"] == "morphism"
-    assert problem.metadata["generation_profile"] == "test-morphism-only"
+    assert problem.metadata["subject"] == "object"
+    assert problem.metadata["generation_profile"] == "test-object-profile"
     assert "sampling_trace" in problem.metadata

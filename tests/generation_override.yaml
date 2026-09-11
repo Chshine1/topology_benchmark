@@ -1,5 +1,3 @@
 generation:
-  profile_version: "test-morphism-only"
+  profile_version: "test-object-profile"
   noise_probability: 0.01
-  difficulty:
-    morphism_probability: {1: 1.0, 4: 1.0, 7: 1.0, 10: 1.0}

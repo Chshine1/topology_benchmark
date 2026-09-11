@@ -181,6 +181,136 @@ class SurfaceAnalyzer:
     def cycle_basis(self, surface: SurfacePresentation) -> tuple[str, ...]:
         return self.cellular_homology(surface).cycle_basis
 
+    def _fundamental_cycle_chains(
+        self, surface: SurfacePresentation
+    ) -> tuple[tuple[int, ...], ...]:
+        """Return oriented quotient-edge chains for the internal graph-cycle basis."""
+
+        offsets, vertex_dsu, _ = self._quotient(surface)
+        edge_basis, _ = self._quotient_edges(surface)
+        vertex_roots = sorted({vertex_dsu.find(vertex) for vertex in range(offsets[-1])})
+        vertex_index = {root: index for index, root in enumerate(vertex_roots)}
+        endpoints = []
+        for edge in edge_basis:
+            start, end = surface.native_edge_vertices(edge, offsets)
+            endpoints.append(
+                (vertex_index[vertex_dsu.find(start)], vertex_index[vertex_dsu.find(end)])
+            )
+
+        forest = DisjointSet(len(vertex_roots))
+        adjacency: dict[int, list[tuple[int, int, bool]]] = {
+            vertex: [] for vertex in range(len(vertex_roots))
+        }
+        chords: list[tuple[int, int, int]] = []
+        for edge_index, (start, end) in enumerate(endpoints):
+            if forest.union(start, end):
+                adjacency[start].append((end, edge_index, True))
+                adjacency[end].append((start, edge_index, False))
+            else:
+                chords.append((edge_index, start, end))
+
+        component_root = {
+            component: min(
+                vertex for vertex in range(len(vertex_roots)) if forest.find(vertex) == component
+            )
+            for component in {forest.find(vertex) for vertex in range(len(vertex_roots))}
+        }
+
+        def tree_path(start: int, end: int) -> tuple[tuple[int, bool], ...]:
+            if start == end:
+                return ()
+            previous: dict[int, tuple[int, int, bool]] = {}
+            pending = [start]
+            reached = {start}
+            while pending:
+                current = pending.pop()
+                if current == end:
+                    break
+                for neighbor, edge_index, forward in adjacency[current]:
+                    if neighbor in reached:
+                        continue
+                    reached.add(neighbor)
+                    previous[neighbor] = (current, edge_index, forward)
+                    pending.append(neighbor)
+            if end not in reached:
+                raise ValueError("cycle endpoints are disconnected in the spanning forest")
+            result: list[tuple[int, bool]] = []
+            current = end
+            while current != start:
+                parent, edge_index, forward = previous[current]
+                result.append((edge_index, forward))
+                current = parent
+            result.reverse()
+            return tuple(result)
+
+        chains = []
+        for edge_index, start, end in chords:
+            root = component_root[forest.find(start)]
+            edges = (
+                *tree_path(root, start),
+                (edge_index, True),
+                *tree_path(end, root),
+            )
+            chain = [0] * len(edge_basis)
+            for quotient_edge, forward in edges:
+                chain[quotient_edge] += 1 if forward else -1
+            chains.append(tuple(chain))
+        return tuple(chains)
+
+    def h1_generators(
+        self, surface: SurfacePresentation
+    ) -> tuple[tuple[tuple[int, ...], int | None], ...]:
+        """Return Smith generators as cycle-basis coefficients and their optional orders."""
+
+        homology = self.cellular_homology(surface)
+        diagonal = (
+            *homology.smith_diagonal,
+            *(0 for _ in range(len(homology.smith_basis) - len(homology.smith_diagonal))),
+        )
+        return tuple(
+            (generator, value if value > 1 else None)
+            for generator, value in zip(homology.smith_basis, diagonal, strict=True)
+            if value != 1
+        )
+
+    def h1_edge_generators(
+        self, surface: SurfacePresentation
+    ) -> tuple[tuple[tuple[int, ...], int | None], ...]:
+        """Return actual H1 generators as oriented quotient-edge chains and their orders."""
+
+        homology = self.cellular_homology(surface)
+        cycle_chains = self._fundamental_cycle_chains(surface)
+        return tuple(
+            (
+                tuple(
+                    sum(
+                        cycle_coefficient * cycle_chains[cycle][edge]
+                        for cycle, cycle_coefficient in enumerate(generator)
+                    )
+                    for edge in range(len(homology.edge_basis))
+                ),
+                order,
+            )
+            for generator, order in self.h1_generators(surface)
+        )
+
+    def path_homology_coefficients(
+        self, surface: SurfacePresentation, path: SurfacePath
+    ) -> tuple[int, ...]:
+        """Return only the coordinates in the ordered, nonzero H1 Smith generators."""
+
+        homology = self.cellular_homology(surface)
+        coordinates = self.path_homology_class(surface, path)
+        diagonal = (
+            *homology.smith_diagonal,
+            *(0 for _ in range(len(coordinates) - len(homology.smith_diagonal))),
+        )
+        return tuple(
+            coordinate
+            for coordinate, value in zip(coordinates, diagonal, strict=True)
+            if value != 1
+        )
+
     def _component_facts(
         self,
         surface: SurfacePresentation,

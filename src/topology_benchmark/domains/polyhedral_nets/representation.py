@@ -16,13 +16,36 @@ type Point = tuple[float, float]
 
 
 class PolyhedralNetSvgRenderer:
-    def render(self, obj: PolyhedralNet, request: GenerationRequest, rng: Random) -> PromptData:
+    def common_scale(self, objects: tuple[PolyhedralNet, ...]) -> float:
+        """Return one pixels-per-unit scale that fits every net in a comparison."""
+        limits = []
+        for obj in objects:
+            points = [point for polygon in self._layout(obj) for point in polygon]
+            min_x, max_x = min(x for x, _ in points), max(x for x, _ in points)
+            min_y, max_y = min(y for _, y in points), max(y for _, y in points)
+            limits.append(
+                min(
+                    86.0,
+                    1000.0 / max(1e-9, max_x - min_x),
+                    720.0 / max(1e-9, max_y - min_y),
+                )
+            )
+        return min(limits)
+
+    def render(
+        self,
+        obj: PolyhedralNet,
+        request: GenerationRequest,
+        rng: Random,
+        *,
+        scale: float | None = None,
+    ) -> PromptData:
         del request
         layouts = self._layout(obj)
         points = [point for polygon in layouts for point in polygon]
         min_x, max_x = min(x for x, _ in points), max(x for x, _ in points)
         min_y, max_y = min(y for _, y in points), max(y for _, y in points)
-        scale = min(
+        scale = scale or min(
             86.0,
             1000.0 / max(1e-9, max_x - min_x),
             720.0 / max(1e-9, max_y - min_y),
@@ -50,10 +73,17 @@ class PolyhedralNetSvgRenderer:
             '<rect width="100%" height="100%" fill="white"/>'
             '<rect width="100%" height="100%" fill="url(#grid)"/>',
         ]
+        labelled_face_fills = ("#e8f0fe", "#e6f4ea", "#fef7e0", "#fce8e6", "#f3e8fd", "#e0f7fa")
+        shown_face_labels = dict(obj.face_labels)
         for face_index, (face, polygon) in enumerate(zip(obj.faces, layouts, strict=True)):
             vertices = " ".join(f"{x:.3f},{y:.3f}" for x, y in map(screen, polygon))
+            face_fill = (
+                labelled_face_fills[face_index % len(labelled_face_fills)]
+                if face_index in shown_face_labels
+                else fill
+            )
             chunks.append(
-                f'<polygon points="{vertices}" fill="{fill}" fill-opacity="0.88" '
+                f'<polygon points="{vertices}" fill="{face_fill}" fill-opacity="0.88" '
                 'stroke="#263746" stroke-width="2.3" stroke-linejoin="round"/>'
             )
             center = screen(
@@ -62,7 +92,6 @@ class PolyhedralNetSvgRenderer:
                     sum(y for _, y in polygon) / len(polygon),
                 )
             )
-            shown_face_labels = dict(obj.face_labels)
             face_label = shown_face_labels.get(face_index)
             if face_label is None and not isinstance(face, PolygonFace):
                 face_label = face.name
@@ -120,6 +149,22 @@ class PolyhedralNetSvgRenderer:
                 f'<text x="{x + 9:.3f}" y="{y - 9:.3f}" font-family="sans-serif" '
                 f'font-size="13" font-weight="bold" fill="{color}">{html.escape(label)}</text>'
             )
+        for corner, label in obj.corner_angle_labels:
+            point = screen(layouts[corner.face][corner.corner])
+            polygon = tuple(map(screen, layouts[corner.face]))
+            center = (
+                sum(x for x, _ in polygon) / len(polygon),
+                sum(y for _, y in polygon) / len(polygon),
+            )
+            direction = (center[0] - point[0], center[1] - point[1])
+            norm = max(1e-9, math.hypot(*direction))
+            x = point[0] + 17 * direction[0] / norm
+            y = point[1] + 17 * direction[1] / norm
+            chunks.append(
+                f'<text x="{x:.3f}" y="{y:.3f}" text-anchor="middle" '
+                'dominant-baseline="middle" font-family="sans-serif" font-size="8.5" '
+                f'fill="#5f6368">{html.escape(label)}</text>'
+            )
         if obj.marked_corner is not None and not obj.corner_labels:
             marked_points = self._marked_points(obj, layouts, obj.marked_corner)
             for point in marked_points:
@@ -142,6 +187,14 @@ class PolyhedralNetSvgRenderer:
             'font-family="sans-serif" font-size="11" fill="#68737d">'
             f"{footer}</text>"
         )
+        bar_x = 14.0
+        bar_y = height - 16.0
+        chunks.append(
+            f'<line x1="{bar_x:.3f}" y1="{bar_y:.3f}" x2="{bar_x + scale:.3f}" '
+            f'y2="{bar_y:.3f}" stroke="#68737d" stroke-width="2"/>'
+            f'<text x="{bar_x + scale / 2:.3f}" y="{bar_y - 5:.3f}" text-anchor="middle" '
+            'font-family="sans-serif" font-size="9" fill="#68737d">1 unit</text>'
+        )
         chunks.append("</svg>")
         return PromptData(
             "image/svg+xml",
@@ -153,6 +206,8 @@ class PolyhedralNetSvgRenderer:
                 "seam_matches_shown": bool(obj.seam_hints),
                 "regular_faces": all(not isinstance(face, PolygonFace) for face in obj.faces),
                 "seeded_renderer": True,
+                "pixels_per_unit": f"{scale:.6f}",
+                "corner_angles_shown": bool(obj.corner_angle_labels),
             },
         )
 

@@ -21,6 +21,7 @@ from topology_benchmark.domains.surfaces.components.generator import (
 from topology_benchmark.domains.surfaces.components.invariant import (
     integral_homology,
     morphism_answer,
+    object_answer,
 )
 from topology_benchmark.domains.surfaces.components.rendering_config import (
     SurfaceRenderingConfig,
@@ -200,16 +201,13 @@ def test_yaml_rendering_overrides_are_injected_through_the_container() -> None:
     assert planner.config is config
 
 
-def test_benchmark_generates_object_and_morphism_questions() -> None:
+def test_benchmark_only_generates_object_questions_while_morphisms_are_withheld() -> None:
     benchmark = build_container().resolve(SurfaceBenchmark)
     problems = [benchmark.generate(seed=seed, difficulty=8) for seed in range(40)]
 
-    assert {problem.metadata["subject"] for problem in problems} == {"object", "morphism"}
+    assert {problem.metadata["subject"] for problem in problems} == {"object"}
     assert all(prompt.media_type == "image/svg+xml" for p in problems for prompt in p.prompts)
-    assert all(
-        len(problem.prompts) == (2 if problem.metadata["subject"] == "morphism" else 1)
-        for problem in problems
-    )
+    assert all(len(problem.prompts) == 1 for problem in problems)
     assert benchmark.generate(seed=7, difficulty=8) == benchmark.generate(seed=7, difficulty=8)
 
 
@@ -256,6 +254,37 @@ def test_path_adjacency_and_homology_use_quotient_vertices() -> None:
     assert homology.h1_rank == 2
     assert homology.h1_torsion == ()
     assert len(analyzer.path_representative(torus, torus.paths[0])) == len(homology.cycle_basis)
+
+
+def test_path_coordinates_use_tagged_edges_and_an_explicit_homology_basis() -> None:
+    torus = SurfacePresentation(
+        (Polygon("P", 4),),
+        (
+            EdgeGluing(EdgeRef(0, 0), EdgeRef(0, 2), "a", False),
+            EdgeGluing(EdgeRef(0, 1), EdgeRef(0, 3), "b", False),
+        ),
+        (SurfacePath("p", (OrientedEdge(EdgeRef(0, 0)),)),),
+    )
+    analyzer = SurfaceAnalyzer()
+    assert analyzer.h1_edge_generators(torus) == (((1, 0), None), ((0, 1), None))
+    assert object_answer(torus, "path-representative") == (1, 0)
+
+    problem = next(
+        problem
+        for seed in range(80)
+        if (
+            problem := build_container()
+            .resolve(SurfaceBenchmark)
+            .generate(seed=seed, difficulty=10)
+        ).metadata["question_kind"]
+        == "path-representative"
+    )
+    assert isinstance(problem.answer, tuple)
+    assert "ordered generators" in problem.question
+    tag_count = problem.metadata["tagged_quotient_edge_count"]
+    assert isinstance(tag_count, int) and tag_count > 0
+    assert "<!-- e1 -->" in problem.prompts[0].content
+    assert "c1" not in problem.prompts[0].content
 
 
 def test_an_edge_cannot_be_used_by_two_gluings() -> None:

@@ -1,6 +1,6 @@
-"""Intent-first benchmark use cases for object and morphism subjects."""
+"""Intent-first benchmark use cases for mathematical objects."""
 
-import math
+from collections import deque
 from collections.abc import Callable
 from dataclasses import replace
 from random import Random
@@ -12,24 +12,18 @@ from topology_benchmark.domains.polyhedral_nets.generation import RandomPolyhedr
 from topology_benchmark.domains.polyhedral_nets.models import (
     EdgePair,
     FaceCorner,
-    PolygonFace,
+    NetEdge,
     PolyhedralFolding,
     PolyhedralNet,
 )
 from topology_benchmark.domains.polyhedral_nets.representation import PolyhedralNetSvgRenderer
+from topology_benchmark.domains.surfaces.analysis import SurfaceAnalyzer
 from topology_benchmark.domains.surfaces.components.generation_config import (
     SurfaceGenerationConfig,
 )
-from topology_benchmark.domains.surfaces.components.invariant import (
-    morphism_answer,
-    object_answer,
-)
-from topology_benchmark.domains.surfaces.components.question import (
-    formulate_morphism,
-    formulate_object,
-)
+from topology_benchmark.domains.surfaces.components.invariant import object_answer
+from topology_benchmark.domains.surfaces.components.question import formulate_object
 from topology_benchmark.domains.surfaces.generation import (
-    ProblemSubject,
     SurfaceGenerationContext,
     SurfaceProblemIntent,
 )
@@ -38,7 +32,6 @@ from topology_benchmark.domains.surfaces.ports import (
     SurfaceAnswer,
     SurfaceGenerator,
     SurfaceIntentGenerator,
-    SurfaceMorphismGenerator,
     SurfaceRepresentation,
 )
 
@@ -47,13 +40,11 @@ class SurfaceBenchmark:
     def __init__(
         self,
         generator: SurfaceGenerator,
-        morphism_generator: SurfaceMorphismGenerator,
         representation: SurfaceRepresentation,
         intent_generator: SurfaceIntentGenerator,
         generation_config: SurfaceGenerationConfig,
     ) -> None:
         self._generator = generator
-        self._morphism_generator = morphism_generator
         self._representation = representation
         self._intent_generator = intent_generator
         self._config = generation_config
@@ -63,55 +54,38 @@ class SurfaceBenchmark:
         sampling = SamplingSession(seed, self._config.profile_version)
         intent = self._intent_generator.sample(request, sampling)
         context = SurfaceGenerationContext(request, intent, sampling)
-        if intent.subject is ProblemSubject.MORPHISM:
-            return self._morphism_problem(context)
         return self._object_problem(context)
 
     def _object_problem(self, context: SurfaceGenerationContext) -> Problem[SurfaceAnswer]:
         surface = self._generator.generate_for(context)
+        edge_labels = ()
+        if context.intent.question_kind == "path-representative":
+            analyzer = SurfaceAnalyzer()
+            used_edges = {
+                edge
+                for coefficients, _ in analyzer.h1_edge_generators(surface)
+                for edge, coefficient in enumerate(coefficients)
+                if coefficient
+            }
+            homology = analyzer.cellular_homology(surface)
+            edge_labels = tuple(
+                (homology.edge_basis[edge], f"e{tag}")
+                for tag, edge in enumerate(sorted(used_edges), start=1)
+            )
         prompt = self._representation.render(
             surface,
             context.request,
             context.sampling.rng("render.object"),
+            edge_labels=edge_labels,
         )
         metadata = self._common_metadata(context.intent, context)
         metadata.update(self._surface_metadata(surface))
+        if context.intent.question_kind == "path-representative":
+            metadata["tagged_quotient_edge_count"] = len(edge_labels)
         return Problem(
             question=formulate_object(surface, context.intent.question_kind, 0),
             prompts=(prompt,),
             answer=object_answer(surface, context.intent.question_kind, 0),
-            seed=context.request.seed,
-            metadata=metadata,
-        )
-
-    def _morphism_problem(self, context: SurfaceGenerationContext) -> Problem[SurfaceAnswer]:
-        morphism = self._morphism_generator.generate_for(context)
-        prompts = (
-            self._representation.render(
-                morphism.source,
-                context.request,
-                context.sampling.rng("render.morphism.source"),
-            ),
-            self._representation.render(
-                morphism.target,
-                context.request,
-                context.sampling.rng("render.morphism.target"),
-            ),
-        )
-        metadata = self._common_metadata(context.intent, context)
-        metadata.update(
-            {
-                "morphism": morphism.name,
-                "morphism_family": morphism.family,
-                "identified_edge_pairs": len(morphism.identifications),
-                "source_polygons": len(morphism.source.polygons),
-                "target_polygons": len(morphism.target.polygons),
-            }
-        )
-        return Problem(
-            question=formulate_morphism(context.intent.question_kind),
-            prompts=prompts,
-            answer=morphism_answer(morphism, context.intent.question_kind),
             seed=context.request.seed,
             metadata=metadata,
         )
@@ -146,12 +120,16 @@ class SurfaceBenchmark:
 
 
 type PolyhedralNetAnswer = int | str | bool
+type MarkedNetCell = tuple[str, int, int]
 
 
 class PolyhedralNetsBenchmark:
     """Spatial-inference benchmark over certified observations of real polyhedra."""
 
-    profile_version = "polyhedral-nets-v2"
+    profile_version = "polyhedral-nets-v6"
+    # Below this relative difference, a rendered edge-length distinction is not treated as
+    # observable. This prevents hidden exact metrics from silently resolving a seam ambiguity.
+    visual_length_tolerance = 0.04
 
     def __init__(
         self,
@@ -174,12 +152,14 @@ class PolyhedralNetsBenchmark:
             if comparison is not None:
                 return comparison
             kinds.remove("isometric")
-        for attempt in range(30):
-            folding = self._generator.generate(request, sampling.rng(f"net.structure.{attempt}"))
-            solutions = self._analyzer.enumerate_locally_convex_pairings(folding.net)
-            if not solutions:
-                continue
-            for kind in kinds:
+        for kind in kinds:
+            for attempt in range(30):
+                folding = self._generator.generate(
+                    request, sampling.rng(f"net.structure.{kind}.{attempt}")
+                )
+                solutions = self._observable_pairings(folding.net)
+                if not solutions:
+                    continue
                 built = self._build_question(
                     folding,
                     solutions,
@@ -216,14 +196,16 @@ class PolyhedralNetsBenchmark:
 
     @staticmethod
     def _question_kinds(difficulty: int) -> tuple[str, ...]:
-        basic = ("seam-match", "corner-coincidence", "face-relation")
+        basic = ("seam-match", "vertex-partition", "cell-distance")
         if difficulty <= 3:
             return basic
-        geometric = (*basic, "vertex-degree", "curvature-order")
+        geometric = (*basic, "vertex-degree", "curvature-order", "cell-shortest-path-count")
         if difficulty <= 6:
             return geometric
-        advanced = (*geometric, "highest-vertex")
-        return (*advanced, "isometric") if difficulty >= 9 else advanced
+        # Two-net isometry is intentionally withheld. A sound negative needs
+        # two valid convex assemblies of the same rigid panel kit; merely choosing visibly
+        # different face inventories tests shortcut detection rather than spatial reasoning.
+        return geometric
 
     def _isometry_problem(
         self, request: GenerationRequest, sampling: SamplingSession
@@ -237,7 +219,7 @@ class PolyhedralNetsBenchmark:
             )
             observed: list[PolyhedralNet] = []
             for folding in (first, second):
-                solutions = self._analyzer.enumerate_locally_convex_pairings(folding.net)
+                solutions = self._observable_pairings(folding.net)
                 certificate = self._certify(
                     folding.net,
                     folding.seams,
@@ -249,21 +231,27 @@ class PolyhedralNetsBenchmark:
                 if certificate is None:
                     break
                 hints, _ = certificate
-                observed.append(replace(folding.net, seam_hints=hints))
+                face_labels = tuple(
+                    (face, f"F{face + 1}") for face in range(len(folding.net.faces))
+                )
+                observed.append(replace(folding.net, seam_hints=hints, face_labels=face_labels))
             if len(observed) != 2:
                 continue
             sampling.note("intent.question-kind", "isometric")
+            common_scale = self._representation.common_scale(tuple(observed))
             prompts = tuple(
                 self._representation.render(
                     net,
                     request,
                     sampling.rng(f"render.comparison.{index}"),
+                    scale=common_scale,
                 )
                 for index, net in enumerate(observed)
             )
             return Problem(
                 question=(
-                    "Do these two to-scale nets reconstruct intrinsically isometric convex "
+                    "The diagrams use a common scale, and equally labelled faces are proposed "
+                    "correspondences. Do the nets reconstruct intrinsically isometric convex "
                     "polyhedral surfaces?"
                 ),
                 prompts=prompts,
@@ -280,6 +268,8 @@ class PolyhedralNetsBenchmark:
                     "source_is_real_3d": True,
                     "drawn_to_scale": True,
                     "partial_gluing_hints": any(net.seam_hints for net in observed),
+                    "common_render_scale": True,
+                    "face_correspondence_shown": True,
                 },
             )
         return None
@@ -297,66 +287,18 @@ class PolyhedralNetsBenchmark:
         truth_analysis = self._analyzer.analyze(folding)
         corner_classes = list(truth_analysis.vertices)
 
-        if kind == "corner-coincidence":
-            same = bool(rng.randrange(2))
-            first_class = rng.choice(corner_classes)
-            corner_first = rng.choice(first_class)
-            if same and len(first_class) > 1:
-                corner_second = rng.choice(
-                    tuple(corner for corner in first_class if corner != corner_first)
-                )
-            else:
-                other = rng.choice(tuple(group for group in corner_classes if group != first_class))
-                corner_second = rng.choice(other)
-
-            def answer(seams: tuple[EdgePair, ...]) -> bool:
-                return self._same_vertex(net, seams, corner_first, corner_second)
-
-            certified = self._certify(net, truth, solutions, answer, difficulty)
-            if certified is None:
-                return None
-            hints, value = certified
-            observed = replace(
-                net,
-                seam_hints=hints,
-                corner_labels=((corner_first, "A"), (corner_second, "B")),
-            )
-            return (
-                "This to-scale net comes from a convex polyhedron. Do marked corners A and B "
-                "become the same vertex after folding?",
-                value,
-                observed,
+        if kind == "vertex-partition":
+            return self._vertex_partition_question(
+                folding, solutions, difficulty, rng, corner_classes
             )
 
-        if kind == "face-relation":
-            hinged = {frozenset((pair.first.face, pair.second.face)) for pair in net.hinges}
-            candidates = [
-                (first, second)
-                for first in range(len(net.faces))
-                for second in range(first + 1, len(net.faces))
-                if frozenset((first, second)) not in hinged
-            ]
-            if not candidates:
-                return None
-            face_first, face_second = rng.choice(candidates)
-
-            def answer(seams: tuple[EdgePair, ...]) -> str:
-                return self._face_relation(net, seams, face_first, face_second)
-
-            certified = self._certify(net, truth, solutions, answer, difficulty)
-            if certified is None:
-                return None
-            hints, value = certified
-            observed = replace(
-                net,
-                seam_hints=hints,
-                face_labels=((face_first, "A"), (face_second, "B")),
-            )
-            return (
-                "After this convex polyhedron is folded, do faces A and B share an edge, "
-                "share only a vertex, or remain disjoint?",
-                value,
-                observed,
+        if kind in ("cell-distance", "cell-shortest-path-count"):
+            return self._cell_distance_question(
+                folding,
+                solutions,
+                difficulty,
+                rng,
+                count_paths=kind == "cell-shortest-path-count",
             )
 
         if kind == "vertex-degree":
@@ -385,31 +327,51 @@ class PolyhedralNetsBenchmark:
 
             def answer(seams: tuple[EdgePair, ...]) -> str:
                 analysis = self._analyzer.analyze(net, seams)
-                angle_a = next(
-                    angle
-                    for group, angle in zip(analysis.vertices, analysis.angle_sums, strict=True)
-                    if curvature_first in group
-                )
-                angle_b = next(
-                    angle
-                    for group, angle in zip(analysis.vertices, analysis.angle_sums, strict=True)
-                    if curvature_second in group
-                )
-                difference = float(angle_a) - float(angle_b)
+                group_a = next(group for group in analysis.vertices if curvature_first in group)
+                group_b = next(group for group in analysis.vertices if curvature_second in group)
+                angle_a = sum(round(float(net.corner_angle_degrees(corner))) for corner in group_a)
+                angle_b = sum(round(float(net.corner_angle_degrees(corner))) for corner in group_b)
+                difference = angle_a - angle_b
                 return "A" if difference < -1e-8 else "B" if difference > 1e-8 else "equal"
+
+            exact_a = sum(net.corner_angle_degrees(corner) for corner in first_class)
+            exact_b = sum(net.corner_angle_degrees(corner) for corner in second_class)
+            visible_a = sum(
+                round(float(net.corner_angle_degrees(corner))) for corner in first_class
+            )
+            visible_b = sum(
+                round(float(net.corner_angle_degrees(corner))) for corner in second_class
+            )
+            exact_difference = float(exact_a) - float(exact_b)
+            visible_difference = visible_a - visible_b
+            if (
+                abs(exact_difference) < 8.0
+                or abs(visible_difference) < 6
+                or exact_difference * visible_difference <= 0
+            ):
+                return None
 
             certified = self._certify(net, truth, solutions, answer, difficulty)
             if certified is None:
                 return None
             hints, value = certified
+            displayed_angles = tuple(
+                (
+                    FaceCorner(face_index, corner),
+                    f"{round(float(net.corner_angle_degrees(FaceCorner(face_index, corner))))}°",
+                )
+                for face_index, face in enumerate(net.faces)
+                for corner in range(face.sides)
+            )
             observed = replace(
                 net,
                 seam_hints=hints,
                 corner_labels=((curvature_first, "A"), (curvature_second, "B")),
+                corner_angle_labels=displayed_angles,
             )
             return (
-                "Which folded vertex has greater angular defect (discrete curvature): A, B, "
-                "or are they equal?",
+                "Corner angles are shown to the nearest degree. Which folded vertex has "
+                "greater angular defect (discrete curvature): A or B?",
                 value,
                 observed,
             )
@@ -458,9 +420,211 @@ class PolyhedralNetsBenchmark:
                 observed,
             )
 
-        if kind == "highest-vertex":
-            return self._highest_vertex_question(folding, solutions, difficulty, rng)
         return None
+
+    def _vertex_partition_question(
+        self,
+        folding: PolyhedralFolding,
+        solutions: tuple[tuple[EdgePair, ...], ...],
+        difficulty: int,
+        rng: Random,
+        corner_classes: list[tuple[FaceCorner, ...]],
+    ) -> tuple[str, PolyhedralNetAnswer, PolyhedralNet] | None:
+        repeated = [group for group in corner_classes if len(group) >= 2]
+        if not repeated or len(corner_classes) < 2:
+            return None
+        count = 4 if difficulty <= 5 else 5
+        first_group = rng.choice(repeated)
+        second_group = rng.choice([group for group in corner_classes if group != first_group])
+        selected = [*rng.sample(first_group, 2), rng.choice(second_group)]
+        remaining = [
+            corner for group in corner_classes for corner in group if corner not in selected
+        ]
+        rng.shuffle(remaining)
+        selected.extend(remaining[: count - len(selected)])
+        if len(selected) != count:
+            return None
+        rng.shuffle(selected)
+        labels = tuple((corner, chr(ord("A") + index)) for index, corner in enumerate(selected))
+
+        def answer(seams: tuple[EdgePair, ...]) -> str:
+            analysis = self._analyzer.analyze(folding.net, seams)
+            groups = [
+                "".join(sorted(label for corner, label in labels if corner in vertex))
+                for vertex in analysis.vertices
+            ]
+            return "|".join(sorted(group for group in groups if group))
+
+        certified = self._certify(folding.net, folding.seams, solutions, answer, difficulty)
+        if certified is None:
+            return None
+        hints, value = certified
+        observed = replace(folding.net, seam_hints=hints, corner_labels=labels)
+        return (
+            "Partition marked corners A through "
+            f"{chr(ord('A') + count - 1)} by the folded vertex they become. Write letters in "
+            "each group alphabetically and separate the groups with |, for example AC|B|D.",
+            value,
+            observed,
+        )
+
+    def _cell_distance_question(
+        self,
+        folding: PolyhedralFolding,
+        solutions: tuple[tuple[EdgePair, ...], ...],
+        difficulty: int,
+        rng: Random,
+        *,
+        count_paths: bool,
+    ) -> tuple[str, PolyhedralNetAnswer, PolyhedralNet] | None:
+        analysis = self._analyzer.analyze(folding)
+        kinds = ("face",) if difficulty <= 3 else ("face", "edge")
+        if difficulty >= 7:
+            kinds = ("face", "edge", "vertex")
+        cells: list[MarkedNetCell] = []
+        if "face" in kinds:
+            cells.extend(("face", face, -1) for face in range(len(folding.net.faces)))
+        if "edge" in kinds:
+            cells.extend(("edge", edge.face, edge.edge) for edge in folding.net.boundary_edges)
+        if "vertex" in kinds:
+            cells.extend(
+                ("vertex", representative.face, representative.corner)
+                for vertex in analysis.vertices
+                for representative in (rng.choice(vertex),)
+            )
+        candidates = [
+            (first, second)
+            for first_index, first in enumerate(cells)
+            for second in cells[first_index + 1 :]
+            if first != second
+        ]
+        rng.shuffle(candidates)
+        prefer_zero = bool(rng.randrange(2))
+        preferred = [
+            pair
+            for pair in candidates
+            if (self._cell_distance_statistics(folding.net, folding.seams, *pair)[0] == 0)
+            == prefer_zero
+        ]
+        if preferred:
+            candidates = preferred
+        for first, second in candidates[:24]:
+
+            def answer(
+                seams: tuple[EdgePair, ...],
+                first_cell: MarkedNetCell = first,
+                second_cell: MarkedNetCell = second,
+            ) -> int:
+                distance, path_count = self._cell_distance_statistics(
+                    folding.net, seams, first_cell, second_cell
+                )
+                return path_count if count_paths else distance
+
+            certified = self._certify(folding.net, folding.seams, solutions, answer, difficulty)
+            if certified is None:
+                continue
+            hints, value = certified
+            observed = self._mark_cells(folding.net, hints, first, second)
+            first_name = self._cell_name(first, "A")
+            second_name = self._cell_name(second, "B")
+            if count_paths:
+                question = (
+                    f"How many shortest vertex paths in the folded 1-skeleton connect {first_name} "
+                    f"to {second_name}? Path length is the number of edges. Distinct paths have "
+                    "different vertex sequences; each common vertex gives one zero-edge path."
+                )
+            else:
+                question = (
+                    f"What is the minimum number of edges in a vertex path through the folded "
+                    f"1-skeleton connecting {first_name} to {second_name}?"
+                )
+            return question, value, observed
+        return None
+
+    def _cell_distance_statistics(
+        self,
+        net: PolyhedralNet,
+        seams: tuple[EdgePair, ...],
+        first: MarkedNetCell,
+        second: MarkedNetCell,
+    ) -> tuple[int, int]:
+        analysis = self._analyzer.analyze(net, seams)
+        vertex_of = {
+            corner: vertex for vertex, corners in enumerate(analysis.vertices) for corner in corners
+        }
+        adjacency = [set() for _ in analysis.vertices]
+        for face_index, face in enumerate(net.faces):
+            for edge in range(face.sides):
+                start = vertex_of[FaceCorner(face_index, edge)]
+                end = vertex_of[FaceCorner(face_index, (edge + 1) % face.sides)]
+                if start != end:
+                    adjacency[start].add(end)
+                    adjacency[end].add(start)
+
+        def vertices(cell: MarkedNetCell) -> set[int]:
+            kind, face, item = cell
+            if kind == "vertex":
+                return {vertex_of[FaceCorner(face, item)]}
+            if kind == "edge":
+                return {
+                    vertex_of[FaceCorner(face, item)],
+                    vertex_of[FaceCorner(face, (item + 1) % net.faces[face].sides)],
+                }
+            return {vertex_of[FaceCorner(face, corner)] for corner in range(net.faces[face].sides)}
+
+        sources, targets = vertices(first), vertices(second)
+        common = sources & targets
+        if common:
+            return 0, len(common)
+        distances = {vertex: 0 for vertex in sources}
+        ways = dict.fromkeys(sources, 1)
+        pending = deque(sources)
+        while pending:
+            current = pending.popleft()
+            for neighbor in adjacency[current]:
+                candidate = distances[current] + 1
+                if neighbor not in distances:
+                    distances[neighbor] = candidate
+                    ways[neighbor] = ways[current]
+                    pending.append(neighbor)
+                elif distances[neighbor] == candidate:
+                    ways[neighbor] += ways[current]
+        distance = min(distances[target] for target in targets)
+        return distance, sum(ways[target] for target in targets if distances[target] == distance)
+
+    @staticmethod
+    def _mark_cells(
+        net: PolyhedralNet,
+        hints: tuple[EdgePair, ...],
+        first: MarkedNetCell,
+        second: MarkedNetCell,
+    ) -> PolyhedralNet:
+        corners = []
+        edges = []
+        faces = []
+        for cell, label in ((first, "A"), (second, "B")):
+            kind, face, item = cell
+            if kind == "vertex":
+                corners.append((FaceCorner(face, item), label))
+            elif kind == "edge":
+                edges.append((NetEdge(face, item), label))
+            else:
+                faces.append((face, label))
+        return replace(
+            net,
+            seam_hints=hints,
+            corner_labels=tuple(corners),
+            edge_labels=tuple(edges),
+            face_labels=tuple(faces),
+        )
+
+    @staticmethod
+    def _cell_name(cell: MarkedNetCell, label: str) -> str:
+        return {
+            "vertex": f"the folded vertex containing corner {label}",
+            "edge": f"the folded edge containing boundary edge {label}",
+            "face": f"face {label}",
+        }[cell[0]]
 
     def _certify(
         self,
@@ -476,7 +640,8 @@ class PolyhedralNetsBenchmark:
         compute = answer
         candidates = list(solutions)
         hints: list[EdgePair] = []
-        budget = 0 if difficulty <= 3 else 1 if difficulty <= 6 else 3
+        # Scaffolding decreases with difficulty. Missing information is not difficulty.
+        budget = 3 if difficulty <= 3 else 2 if difficulty <= 6 else 1
         target = compute(truth)
         while (
             len(candidates) != 1
@@ -503,69 +668,10 @@ class PolyhedralNetsBenchmark:
             hints.append(chosen)
         return tuple(hints), target
 
-    def _highest_vertex_question(
-        self,
-        folding: PolyhedralFolding,
-        solutions: tuple[tuple[EdgePair, ...], ...],
-        difficulty: int,
-        rng: Random,
-    ) -> tuple[str, PolyhedralNetAnswer, PolyhedralNet] | None:
-        source = folding.source
-        if source is None:
-            return None
-        unique = self._certify(
-            folding.net,
-            folding.seams,
-            solutions,
-            lambda seams: True,
-            difficulty,
-            require_unique=True,
-        )
-        if unique is None:
-            return None
-        hints, _ = unique
-        root = source.faces[folding.root_face]
-        a, b, c = (source.vertices[root[index]] for index in range(3))
-        ab = tuple(float(y - x) for x, y in zip(a, b, strict=True))
-        ac = tuple(float(y - x) for x, y in zip(a, c, strict=True))
-        normal = (
-            ab[1] * ac[2] - ab[2] * ac[1],
-            ab[2] * ac[0] - ab[0] * ac[2],
-            ab[0] * ac[1] - ab[1] * ac[0],
-        )
-        norm = math.sqrt(sum(value * value for value in normal))
-        heights = {
-            vertex: -sum(float(point[index] - a[index]) * normal[index] for index in range(3))
-            / norm
-            for vertex, point in enumerate(source.vertices)
-        }
-        ordered = sorted((height, vertex) for vertex, height in heights.items())
-        if len(ordered) < 2 or ordered[-1][0] - ordered[0][0] < 1e-8:
-            return None
-        selected = [ordered[0][1], ordered[-1][1]]
-        middle = [vertex for _, vertex in ordered[1:-1]]
-        if middle:
-            selected.append(rng.choice(middle))
-        corner_by_source: dict[int, FaceCorner] = {}
-        for face_index, face in enumerate(folding.net.faces):
-            if isinstance(face, PolygonFace):
-                for corner, source_vertex in enumerate(face.source_vertices):
-                    corner_by_source.setdefault(source_vertex, FaceCorner(face_index, corner))
-        labels = tuple(
-            (corner_by_source[vertex], chr(65 + index)) for index, vertex in enumerate(selected)
-        )
-        answer = max(range(len(selected)), key=lambda index: heights[selected[index]])
-        observed = replace(
-            folding.net,
-            seam_hints=hints,
-            corner_labels=labels,
-            face_labels=((folding.root_face, "BASE"),),
-        )
-        return (
-            "Place face BASE on a horizontal table and fold the convex polyhedron above it. "
-            "Which marked vertex is highest?",
-            chr(65 + answer),
-            observed,
+    def _observable_pairings(self, net: PolyhedralNet) -> tuple[tuple[EdgePair, ...], ...]:
+        return self._analyzer.enumerate_locally_convex_pairings(
+            net,
+            relative_length_tolerance=self.visual_length_tolerance,
         )
 
     @staticmethod
@@ -583,21 +689,6 @@ class PolyhedralNetsBenchmark:
             first in group and second in group
             for group in self._analyzer.analyze(net, seams).vertices
         )
-
-    def _face_relation(
-        self, net: PolyhedralNet, seams: tuple[EdgePair, ...], first: int, second: int
-    ) -> str:
-        if any(
-            {pair.first.face, pair.second.face} == {first, second} for pair in (*net.hinges, *seams)
-        ):
-            return "edge"
-        analysis = self._analyzer.analyze(net, seams)
-        if any(
-            {corner.face for corner in vertex}.issuperset((first, second))
-            for vertex in analysis.vertices
-        ):
-            return "vertex"
-        return "disjoint"
 
 
 PolyhedralNetBenchmark = PolyhedralNetsBenchmark

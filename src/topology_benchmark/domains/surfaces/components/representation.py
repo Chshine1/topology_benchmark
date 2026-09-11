@@ -34,7 +34,12 @@ class MatplotlibGluingDiagramRenderer(SurfaceRepresentation):
         self._config = config
 
     def render(
-        self, obj: SurfacePresentation, request: GenerationRequest, rng: Random
+        self,
+        obj: SurfacePresentation,
+        request: GenerationRequest,
+        rng: Random,
+        *,
+        edge_labels: tuple[tuple[EdgeRef, str], ...] = (),
     ) -> PromptData:
         del rng
         plan = self._planner.plan(obj, Random((request.seed << 8) ^ 0xA53C9E))
@@ -48,6 +53,7 @@ class MatplotlibGluingDiagramRenderer(SurfaceRepresentation):
         axes = figure.add_axes((0, 0, 1, 1))
         self._configure_axes(axes, plan)
         self._draw_polygons(axes, obj, plan)
+        self._draw_edge_labels(axes, plan, edge_labels)
         for curve in plan.curves:
             self._draw_path_curve(
                 axes,
@@ -69,6 +75,7 @@ class MatplotlibGluingDiagramRenderer(SurfaceRepresentation):
                 "representation": "matplotlib-polygon-gluing-diagram",
                 "polygon_count": len(obj.polygons),
                 "path_count": len(obj.paths),
+                "oriented_edge_tags": len(edge_labels),
                 "boundary_style": plan.style.boundary_pattern.value,
                 "path_order_styles": ",".join(
                     curve.style.order_display.value
@@ -78,6 +85,53 @@ class MatplotlibGluingDiagramRenderer(SurfaceRepresentation):
                 "seeded_renderer": True,
             },
         )
+
+    def _draw_edge_labels(
+        self,
+        axes: Axes,
+        plan: DiagramPlan,
+        edge_labels: tuple[tuple[EdgeRef, str], ...],
+    ) -> None:
+        color = "#9f1239"
+        for edge, label in edge_labels:
+            layout = plan.polygons[edge.polygon]
+            start, end = layout.edge(edge.edge)
+            midpoint = ((start[0] + end[0]) / 2, (start[1] + end[1]) / 2)
+            inward = self._unit(layout.center[0] - midpoint[0], layout.center[1] - midpoint[1])
+            offset = 10.0
+            arrow_start = (
+                start[0] + 0.22 * (end[0] - start[0]) + offset * inward[0],
+                start[1] + 0.22 * (end[1] - start[1]) + offset * inward[1],
+            )
+            arrow_end = (
+                start[0] + 0.78 * (end[0] - start[0]) + offset * inward[0],
+                start[1] + 0.78 * (end[1] - start[1]) + offset * inward[1],
+            )
+            axes.add_patch(
+                FancyArrowPatch(
+                    arrow_start,
+                    arrow_end,
+                    arrowstyle="-|>",
+                    mutation_scale=self._config.arrows.path_size,
+                    color=color,
+                    linewidth=1.35,
+                    shrinkA=0,
+                    shrinkB=0,
+                    zorder=7,
+                )
+            )
+            axes.text(
+                midpoint[0] + 24 * inward[0],
+                midpoint[1] + 24 * inward[1],
+                label,
+                color=color,
+                fontsize=self._config.labels.path_size,
+                fontweight="bold",
+                ha="center",
+                va="center",
+                bbox={"facecolor": "white", "edgecolor": "none", "pad": 0.8, "alpha": 0.9},
+                zorder=8,
+            )
 
     @staticmethod
     def _configure_axes(axes: Axes, plan: DiagramPlan) -> None:

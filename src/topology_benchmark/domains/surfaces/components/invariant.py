@@ -45,15 +45,8 @@ def object_answer(
         return analyzer.path_is_cycle(surface, path)
     if question_kind == "path-representative":
         if not analyzer.path_is_cycle(surface, path):
-            return "not a homology class (the path is not a cycle)"
-        homology = analyzer.cellular_homology(surface)
-        cycle_vector = analyzer.path_representative(surface, path)
-        smith_vector = analyzer.path_homology_class(surface, path)
-        return (
-            f"cycle_basis={homology.cycle_basis}; cycle_coordinates={cycle_vector}; "
-            f"Smith_basis={homology.smith_basis}; class={smith_vector}; "
-            f"Smith_diagonal={homology.smith_diagonal}"
-        )
+            raise ValueError("path-coordinate questions require a cycle")
+        return analyzer.path_homology_coefficients(surface, path)
     raise ValueError(f"unknown surface question kind: {question_kind}")
 
 

@@ -138,6 +138,7 @@ class PolyhedralNet:
     edge_labels: tuple[tuple[NetEdge, str], ...] = ()
     corner_labels: tuple[tuple[FaceCorner, str], ...] = ()
     face_labels: tuple[tuple[int, str], ...] = ()
+    corner_angle_labels: tuple[tuple[FaceCorner, str], ...] = ()
 
     def __post_init__(self) -> None:
         if not self.name.strip() or not self.faces:
@@ -174,6 +175,10 @@ class PolyhedralNet:
             self._validate_corner(corner)
             if not label.strip():
                 raise ValueError("corner labels cannot be empty")
+        for corner, label in self.corner_angle_labels:
+            self._validate_corner(corner)
+            if not label.strip():
+                raise ValueError("corner-angle labels cannot be empty")
         for face, label in self.face_labels:
             if not 0 <= face < len(self.faces) or not label.strip():
                 raise ValueError("face labels must reference known faces")
