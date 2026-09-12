@@ -1,5 +1,3 @@
-"""Invariants computed from surface objects and boundary-gluing morphisms."""
-
 from collections import Counter
 
 from topology_benchmark.domains.surfaces.analysis import SurfaceAnalyzer, SurfaceFacts
@@ -12,8 +10,8 @@ from topology_benchmark.domains.surfaces.models import (
 from topology_benchmark.domains.surfaces.ports import SurfaceAnswer
 
 
-def integral_homology(surface: SurfacePresentation) -> str:
-    homology = SurfaceAnalyzer().cellular_homology(surface)
+def integral_homology(analyzer: SurfaceAnalyzer, surface: SurfacePresentation) -> str:
+    homology = analyzer.cellular_homology(surface)
     h1_parts = []
     if homology.h1_rank:
         h1_parts.append(_free_group(homology.h1_rank))
@@ -26,9 +24,11 @@ def integral_homology(surface: SurfacePresentation) -> str:
 
 
 def object_answer(
-    surface: SurfacePresentation, question_kind: str, path_index: int = 0
+    analyzer: SurfaceAnalyzer,
+    surface: SurfacePresentation,
+    question_kind: str,
+    path_index: int = 0,
 ) -> SurfaceAnswer:
-    analyzer = SurfaceAnalyzer()
     facts = analyzer.analyze(surface)
     if question_kind == "euler-characteristic":
         return facts.euler_characteristic
@@ -39,7 +39,7 @@ def object_answer(
     if question_kind == "orientable":
         return all(component.orientable for component in facts.components)
     if question_kind == "homology-groups":
-        return integral_homology(surface)
+        return integral_homology(analyzer, surface)
     path = surface.paths[path_index]
     if question_kind == "path-is-cycle":
         return analyzer.path_is_cycle(surface, path)
@@ -50,8 +50,9 @@ def object_answer(
     raise ValueError(f"unknown surface question kind: {question_kind}")
 
 
-def morphism_answer(morphism: SurfaceMorphism, question_kind: str) -> SurfaceAnswer:
-    analyzer = SurfaceAnalyzer()
+def morphism_answer(
+    analyzer: SurfaceAnalyzer, morphism: SurfaceMorphism, question_kind: str
+) -> SurfaceAnswer:
     source = analyzer.analyze(morphism.source)
     target = analyzer.analyze(morphism.target)
     if question_kind == "euler-change":
@@ -61,7 +62,7 @@ def morphism_answer(morphism: SurfaceMorphism, question_kind: str) -> SurfaceAns
     if question_kind == "component-change":
         return len(target.components) - len(source.components)
     if question_kind == "target-homology":
-        return integral_homology(morphism.target)
+        return integral_homology(analyzer, morphism.target)
     if question_kind == "map-injective":
         return isinstance(morphism, PolygonAttachmentMorphism)
     if question_kind == "map-surjective":

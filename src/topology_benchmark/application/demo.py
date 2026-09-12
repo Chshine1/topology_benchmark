@@ -1,35 +1,21 @@
-"""Domain-independent HTTP demo for generated multimodal problems."""
-
 import html
 import json
 from collections.abc import Mapping
 from dataclasses import asdict
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any, Protocol
 from urllib.parse import parse_qs, urlparse
 
-from topology_benchmark.core.models import Problem
-
-
-class ProblemProvider(Protocol):
-    """The only capability the demo requires from a benchmark domain."""
-
-    def generate(self, *, seed: int, difficulty: int = 1) -> Problem[Any]: ...
+from topology_benchmark.core.protocols import ProblemProvider
 
 
 class DemoApplication:
-    """Transport-neutral responses, separated from the HTTP server."""
-
     def __init__(
         self,
-        provider: ProblemProvider,
-        *,
-        providers: Mapping[str, ProblemProvider] | None = None,
-        default_domain: str = "default",
+        providers: Mapping[str, ProblemProvider],
+        default_domain: str,
     ) -> None:
-        self._provider = provider
-        self._providers = dict(providers or {default_domain: provider})
+        self._providers = dict(providers)
         if default_domain not in self._providers:
             raise ValueError("default demo domain is not registered")
         self.default_domain = default_domain
@@ -63,19 +49,15 @@ class DemoApplication:
 
 
 def serve_demo(
-    provider: ProblemProvider,
     *,
+    providers: Mapping[str, ProblemProvider],
+    default_domain: str,
     host: str = "127.0.0.1",
     port: int = 8000,
-    providers: Mapping[str, ProblemProvider] | None = None,
-    default_domain: str = "default",
 ) -> None:
-    """Serve the generic viewer until interrupted."""
-
     application = DemoApplication(
-        provider,
-        providers=providers,
-        default_domain=default_domain,
+        providers,
+        default_domain,
     )
 
     class Handler(BaseHTTPRequestHandler):
@@ -153,12 +135,12 @@ _INDEX_HTML = """<!doctype html>
     button.secondary { background: white; color: #174ea6; }
     #status { margin-left: auto; color: #68737d; font-size: .9rem; }
     #question { font-size: 1.12rem; }
-    #prompts { display: grid;
+    #sections { display: grid;
       grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
-    .prompt { border: 1px solid #dfe3e8; border-radius: 9px; padding: 10px; overflow: auto; }
-    .prompt img { display: block; width: 100%; height: auto; }
+    .section { border: 1px solid #dfe3e8; border-radius: 9px; padding: 10px; overflow: auto; }
+    .section img { display: block; width: 100%; height: auto; }
     pre { white-space: pre-wrap; overflow-wrap: anywhere; }
-    .meta { color: #68737d; font: .78rem ui-monospace, monospace; margin-top: 8px; }
+    .details { color: #68737d; font: .78rem ui-monospace, monospace; margin-top: 8px; }
     #answer { background: #f0f7ee; border-color: #a8c7a0; }
     [hidden] { display: none !important; }
   </style>
@@ -177,8 +159,8 @@ _INDEX_HTML = """<!doctype html>
     </div>
   </header>
   <section><h2>Question</h2><p id="question">Loading…</p>
-    <div id="problem-meta" class="meta"></div></section>
-  <section><h2>Prompt</h2><div id="prompts"></div></section>
+    <div id="problem-details" class="details"></div></section>
+  <section><h2>Question material</h2><div id="sections"></div></section>
   <section><button id="reveal" class="secondary">Reveal ground truth</button>
     <pre id="answer" hidden></pre></section>
 </main>
@@ -186,30 +168,29 @@ _INDEX_HTML = """<!doctype html>
   const byId = id => document.getElementById(id);
   const objectUrls = [];
   function clearObjectUrls() { while (objectUrls.length) URL.revokeObjectURL(objectUrls.pop()); }
-  function metadata(value) { return JSON.stringify(value, null, 2); }
-  function renderPrompt(prompt, index) {
-    const card = document.createElement('article'); card.className = 'prompt';
+  function formatJson(value) { return JSON.stringify(value, null, 2); }
+  function renderSection(section, index) {
+    const card = document.createElement('article'); card.className = 'section';
     const title = document.createElement('strong');
-    title.textContent = `Prompt ${index + 1} · ${prompt.media_type}`;
+    title.textContent = `Section ${index + 1} · ${section.media_type}`;
     card.append(title);
-    if (prompt.media_type.startsWith('image/')) {
-      const image = document.createElement('img'); image.alt = `Generated prompt ${index + 1}`;
-      if (prompt.content.startsWith('data:')) image.src = prompt.content;
-      else if (prompt.media_type === 'image/svg+xml') {
-        image.src = URL.createObjectURL(new Blob([prompt.content], {type: prompt.media_type}));
+    if (section.media_type.startsWith('image/')) {
+      const image = document.createElement('img'); image.alt = `Question section ${index + 1}`;
+      if (section.content.startsWith('data:')) image.src = section.content;
+      else if (section.media_type === 'image/svg+xml') {
+        image.src = URL.createObjectURL(new Blob([section.content], {type: section.media_type}));
         objectUrls.push(image.src);
-      } else image.src = `data:${prompt.media_type};base64,${prompt.content}`;
+      } else image.src = `data:${section.media_type};base64,${section.content}`;
       card.append(image);
-    } else if (prompt.media_type.startsWith('audio/')) {
+    } else if (section.media_type.startsWith('audio/')) {
       const audio = document.createElement('audio'); audio.controls = true;
-      audio.src = prompt.content.startsWith('data:') ? prompt.content
-        : `data:${prompt.media_type};base64,${prompt.content}`; card.append(audio);
+      audio.src = section.content.startsWith('data:') ? section.content
+        : `data:${section.media_type};base64,${section.content}`; card.append(audio);
     } else {
-      const pre = document.createElement('pre'); pre.textContent = prompt.content; card.append(pre);
+      const pre = document.createElement('pre');
+      pre.textContent = section.content; card.append(pre);
     }
-    const meta = document.createElement('pre'); meta.className = 'meta';
-    meta.textContent = metadata(prompt.metadata);
-    card.append(meta); return card;
+    return card;
   }
   async function load(randomize) {
     if (randomize) byId('seed').value = crypto.getRandomValues(new Uint32Array(1))[0];
@@ -222,13 +203,13 @@ _INDEX_HTML = """<!doctype html>
       const response = await fetch(endpoint); const problem = await response.json();
       if (!response.ok) throw new Error(problem.error || response.statusText);
       byId('question').textContent = problem.question;
-      byId('problem-meta').textContent = metadata({seed: problem.seed, ...problem.metadata});
-      byId('answer').textContent = metadata(problem.answer);
-      byId('prompts').replaceChildren(...problem.prompts.map(renderPrompt));
+      byId('problem-details').textContent = formatJson(
+        {seed: problem.seed, question_kind: problem.question_kind});
+      byId('answer').textContent = formatJson(problem.answer);
+      byId('sections').replaceChildren(...problem.sections.map(renderSection));
       history.replaceState(null, '', `/?domain=${encodeURIComponent(domain)}`
         + `&seed=${encodeURIComponent(seed)}&difficulty=${difficulty}`);
-      const subject = problem.metadata.subject || 'problem';
-      byId('status').textContent = `${domain} · ${subject} · seed ${problem.seed}`;
+      byId('status').textContent = `${domain} · ${problem.question_kind} · seed ${problem.seed}`;
     } catch (error) { byId('status').textContent = error.message; }
   }
   byId('difficulty').addEventListener('input', event => {

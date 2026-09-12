@@ -12,6 +12,7 @@ from topology_benchmark.core.probability import (
     WeightedValue,
     interpolate_anchors,
 )
+from topology_benchmark.domains.surfaces.analysis import SurfaceAnalyzer
 from topology_benchmark.domains.surfaces.components.generation_config import (
     SurfaceGenerationConfig,
     load_generation_config,
@@ -29,6 +30,7 @@ from topology_benchmark.domains.surfaces.generation import (
     SurfaceGenerationContext,
     SurfaceProblemIntent,
 )
+from topology_benchmark.domains.surfaces.ports import SurfaceGenerator, SurfaceMorphismGenerator
 
 
 def test_named_random_streams_are_reproducible_and_independent() -> None:
@@ -77,7 +79,7 @@ def test_intent_cohorts_follow_difficulty_and_keep_noise_rare() -> None:
 
 def test_paths_are_question_aligned_but_allow_low_rate_noise() -> None:
     config = load_generation_config()
-    generator = RandomSurfacePresentationGenerator(config)
+    generator = RandomSurfacePresentationGenerator(config, SurfaceAnalyzer())
     incidental = 0
     cohort_size = 500
     for seed in range(cohort_size):
@@ -115,7 +117,7 @@ def test_paths_are_question_aligned_but_allow_low_rate_noise() -> None:
 
 def test_simple_two_disk_spheres_are_rare_at_high_difficulty() -> None:
     config = load_generation_config()
-    generator = RandomSurfaceMorphismGenerator(config)
+    generator = RandomSurfaceMorphismGenerator(config, SurfaceAnalyzer())
     families: Counter[str] = Counter()
     intent = SurfaceProblemIntent(
         ProblemSubject.MORPHISM,
@@ -137,10 +139,15 @@ def test_generation_yaml_is_layered_and_injected() -> None:
     container = build_container(generation_config=override)
     config = container.resolve(SurfaceGenerationConfig)
     benchmark = container.resolve(SurfaceBenchmark)
+    generator = container.resolve(SurfaceGenerator)
+    morphism_generator = container.resolve(SurfaceMorphismGenerator)
 
     assert config.profile_version == "test-object-profile"
     assert config.difficulty.path_maximum.at(10) == 7
+    assert isinstance(generator, RandomSurfacePresentationGenerator)
+    assert isinstance(morphism_generator, RandomSurfaceMorphismGenerator)
+    assert generator.config is config
+    assert morphism_generator.config is config
     problem = benchmark.generate(seed=3, difficulty=1)
-    assert problem.metadata["subject"] == "object"
-    assert problem.metadata["generation_profile"] == "test-object-profile"
-    assert "sampling_trace" in problem.metadata
+    assert problem.question_kind
+    assert problem.sections

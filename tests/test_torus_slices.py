@@ -24,7 +24,7 @@ def test_disk_intersection_computes_hopf_link_and_unlink() -> None:
 
 
 def test_generator_certifies_disjoint_tubes_and_reproducible_slices() -> None:
-    generator = RandomTorusSliceGenerator()
+    generator = RandomTorusSliceGenerator(TorusFamilyAnalyzer())
     request = GenerationRequest(31, 9)
     first = generator.generate(request, Random(31), count=4, linked=True)
     second = generator.generate(request, Random(31), count=4, linked=True)
@@ -45,7 +45,7 @@ def test_elliptic_torus_sweeps_a_rotated_ellipse_around_a_circle() -> None:
 
 
 def test_connected_chain_links_all_consecutive_tori() -> None:
-    generator = RandomTorusSliceGenerator()
+    generator = RandomTorusSliceGenerator(TorusFamilyAnalyzer())
     observation = generator.generate(
         GenerationRequest(17, 10),
         Random(17),
@@ -59,7 +59,7 @@ def test_connected_chain_links_all_consecutive_tori() -> None:
 
 
 def test_complete_hopf_link_has_every_pair_linked() -> None:
-    generator = RandomTorusSliceGenerator()
+    generator = RandomTorusSliceGenerator(TorusFamilyAnalyzer())
     observation = generator.generate(
         GenerationRequest(23, 10),
         Random(23),
@@ -86,9 +86,6 @@ def test_benchmark_is_wired_and_hides_equations_and_core_circles() -> None:
     second = benchmark.generate(seed=8, difficulty=8)
 
     assert first == second
-    assert first.metadata["domain"] == "torus-slices"
-    assert first.metadata["pairwise_disjoint_certified"] is True
-    assert first.prompts[0].media_type == "image/svg+xml"
-    assert first.prompts[0].metadata["core_circles_shown"] is False
-    assert first.prompts[0].metadata["equations_shown"] is False
-    assert "Parallel level sections" in first.prompts[0].content
+    assert first.question_kind in {"linked-pair-count", "completely-unlinked"}
+    assert first.sections[0].media_type == "image/svg+xml"
+    assert "Parallel level sections" in first.sections[0].content

@@ -1,5 +1,3 @@
-"""Generate a sample problem from the command line."""
-
 import argparse
 import json
 from dataclasses import asdict
@@ -44,7 +42,6 @@ def main() -> None:
     benchmark = providers[args.domain]
     if args.serve:
         serve_demo(
-            benchmark,
             host=args.host,
             port=args.port,
             providers=providers,

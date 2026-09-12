@@ -1,9 +1,27 @@
-"""Circular core links, elliptic tube profiles, and parallel-plane sections."""
-
 import math
-from dataclasses import dataclass
+
+from attrs import Attribute, field, frozen
+
+from topology_benchmark.core.validation import nonempty, number_range
 
 type Vector3 = tuple[float, float, float]
+
+
+def _unit_vector(message: str):
+    def validate(_: object, __: Attribute[Vector3], value: Vector3) -> None:
+        if not math.isclose(norm(value), 1.0, abs_tol=1e-8):
+            raise ValueError(message)
+
+    return validate
+
+
+def _strictly_increasing(
+    _: object,
+    __: Attribute[tuple[float, ...]],
+    value: tuple[float, ...],
+) -> None:
+    if len(value) < 2 or tuple(sorted(set(value))) != value:
+        raise ValueError("levels must be strictly increasing")
 
 
 def dot(first: Vector3, second: Vector3) -> float:
@@ -46,17 +64,20 @@ def circle_basis(normal: Vector3) -> tuple[Vector3, Vector3]:
     return first, cross(normal, first)
 
 
-@dataclass(frozen=True, slots=True)
+@frozen
 class RoundCircle:
-    """A Euclidean circle embedded in R^3."""
+    """``normal`` orients increasing ``point(parameter)`` by the right-hand rule."""
 
     center: Vector3
-    normal: Vector3
-    radius: float
-
-    def __post_init__(self) -> None:
-        if self.radius <= 0 or not math.isclose(norm(self.normal), 1.0, abs_tol=1e-8):
-            raise ValueError("a circle needs a positive radius and unit normal")
+    normal: Vector3 = field(
+        validator=_unit_vector("a circle needs a positive radius and unit normal")
+    )
+    radius: float = field(
+        validator=number_range(
+            minimum_exclusive=0.0,
+            message="a circle needs a positive radius and unit normal",
+        )
+    )
 
     def point(self, parameter: float) -> Vector3:
         first, second = circle_basis(self.normal)
@@ -71,31 +92,22 @@ class RoundCircle:
     def basis(self) -> tuple[Vector3, Vector3]:
         return circle_basis(self.normal)
 
-    @property
-    def semi_major(self) -> float:
-        return self.radius
-
-    @property
-    def semi_minor(self) -> float:
-        return self.radius
-
-    @property
-    def max_radius(self) -> float:
-        return self.radius
-
 
 type CoreCurve = RoundCircle
 
 
-@dataclass(frozen=True, slots=True)
+@frozen
 class RoundTorus:
-    """The boundary of a constant-radius tube around a round core circle."""
-
     core: CoreCurve
-    tube_radius: float
+    tube_radius: float = field(
+        validator=number_range(
+            minimum_exclusive=0.0,
+            message="the tube radius must be smaller than the core radius",
+        )
+    )
 
-    def __post_init__(self) -> None:
-        if not 0 < self.tube_radius < self.core.radius:
+    def __attrs_post_init__(self) -> None:
+        if self.tube_radius >= self.core.radius:
             raise ValueError("the tube radius must be smaller than the core radius")
 
     def implicit_value(self, point: Vector3) -> float:
@@ -113,18 +125,26 @@ class RoundTorus:
         return self.tube_radius
 
 
-@dataclass(frozen=True, slots=True)
+@frozen
 class EllipticTorus:
-    """A rotated elliptical profile swept around a round planar core circle."""
+    """``profile_angle`` rotates the two semiaxes in the radial-axial plane."""
 
     core: RoundCircle
-    first_radius: float
-    second_radius: float
+    first_radius: float = field(
+        validator=number_range(
+            minimum_exclusive=0.0,
+            message="elliptic profile semiaxes must be positive",
+        )
+    )
+    second_radius: float = field(
+        validator=number_range(
+            minimum_exclusive=0.0,
+            message="elliptic profile semiaxes must be positive",
+        )
+    )
     profile_angle: float = 0.0
 
-    def __post_init__(self) -> None:
-        if min(self.first_radius, self.second_radius) <= 0:
-            raise ValueError("elliptic profile semiaxes must be positive")
+    def __attrs_post_init__(self) -> None:
         if self.clearance_radius >= self.core.radius:
             raise ValueError("the elliptic profile must be smaller than the core radius")
 
@@ -146,27 +166,19 @@ class EllipticTorus:
 type TorusComponent = RoundTorus | EllipticTorus
 
 
-@dataclass(frozen=True, slots=True)
+@frozen
 class TorusFamily:
-    """A finite collection of pairwise-disjoint rigid round tori."""
+    """Generators certify pairwise disjointness; this container does not."""
 
-    tori: tuple[TorusComponent, ...]
-
-    def __post_init__(self) -> None:
-        if not self.tori:
-            raise ValueError("a torus family cannot be empty")
+    tori: tuple[TorusComponent, ...] = field(validator=nonempty("a torus family cannot be empty"))
 
 
-@dataclass(frozen=True, slots=True)
+@frozen
 class TorusSliceObservation:
-    """Ground-truth family together with the only planes exposed to the answerer."""
+    """Each level renders the plane ``dot(point, height_direction) == level``."""
 
     family: TorusFamily
-    height_direction: Vector3
-    levels: tuple[float, ...]
-
-    def __post_init__(self) -> None:
-        if not math.isclose(norm(self.height_direction), 1.0, abs_tol=1e-8):
-            raise ValueError("height direction must be a unit vector")
-        if len(self.levels) < 2 or tuple(sorted(set(self.levels))) != self.levels:
-            raise ValueError("levels must be strictly increasing")
+    height_direction: Vector3 = field(
+        validator=_unit_vector("height direction must be a unit vector")
+    )
+    levels: tuple[float, ...] = field(validator=_strictly_increasing)

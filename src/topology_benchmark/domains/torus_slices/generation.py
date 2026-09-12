@@ -1,9 +1,8 @@
-"""Seeded construction of elliptic unlinks, Hopf pairs, and connected link chains."""
-
 import math
 from random import Random
 
 from topology_benchmark.core.models import GenerationRequest
+from topology_benchmark.core.protocols import ObjectGenerator
 from topology_benchmark.domains.torus_slices.analysis import TorusFamilyAnalyzer
 from topology_benchmark.domains.torus_slices.models import (
     EllipticTorus,
@@ -19,7 +18,10 @@ from topology_benchmark.domains.torus_slices.models import (
 )
 
 
-class RandomTorusSliceGenerator:
+class RandomTorusSliceGenerator(ObjectGenerator[TorusSliceObservation]):
+    def __init__(self, analyzer: TorusFamilyAnalyzer) -> None:
+        self._analyzer = analyzer
+
     def generate(
         self,
         request: GenerationRequest,
@@ -152,9 +154,8 @@ class RandomTorusSliceGenerator:
             sine * math.cos(parameter + phase) / denominator,
         )
 
-    @classmethod
     def _elliptic_family(
-        cls,
+        self,
         cores: tuple[RoundCircle, ...],
         angle: float,
         tilt: float,
@@ -163,13 +164,12 @@ class RandomTorusSliceGenerator:
         expected_links: int,
         rng: Random,
     ) -> TorusFamily:
-        analyzer = TorusFamilyAnalyzer()
         for _ in range(32):
             tori = tuple(
                 EllipticTorus(
                     RoundCircle(
-                        cls._transform(circle.center, angle, tilt, translation),
-                        unit(cls._rotate(circle.normal, angle, tilt)),
+                        self._transform(circle.center, angle, tilt, translation),
+                        unit(self._rotate(circle.normal, angle, tilt)),
                         circle.radius,
                     ),
                     tube * rng.uniform(0.72, 1.28),
@@ -179,8 +179,8 @@ class RandomTorusSliceGenerator:
                 for circle in cores
             )
             family = TorusFamily(tori)
-            if len(analyzer.linked_pairs(family)) == expected_links and analyzer.certify_disjoint(
-                family
+            if len(self._analyzer.linked_pairs(family)) == expected_links and (
+                self._analyzer.certify_disjoint(family)
             ):
                 return family
         raise RuntimeError("could not certify a disjoint elliptic realization of the link")
@@ -219,8 +219,8 @@ class RandomTorusSliceGenerator:
             center = sum(a * b for a, b in zip(torus.core.center, direction, strict=True))
             major, minor = torus.core.basis()
             core_extent = math.hypot(
-                torus.core.semi_major * sum(a * b for a, b in zip(major, direction, strict=True)),
-                torus.core.semi_minor * sum(a * b for a, b in zip(minor, direction, strict=True)),
+                torus.core.radius * sum(a * b for a, b in zip(major, direction, strict=True)),
+                torus.core.radius * sum(a * b for a, b in zip(minor, direction, strict=True)),
             )
             bounds.append(
                 (

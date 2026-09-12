@@ -2,8 +2,8 @@
 
 `topology_benchmark` is a reproducible visual-problem generator for evaluating geometric and
 topological reasoning. The framework separates mathematical objects, exact ground-truth analysis,
-question selection, and graphic representation so that a problem is solved from its prompt rather
-than from generator metadata.
+question selection, and graphic representation so that a problem is solved from its supplied
+question material rather than from hidden generator state.
 
 The built-in domains are **compact surfaces presented by polygon-edge gluings**, **polyhedral
 nets**, and **round tori observed through parallel level sections**. They generate single-object
@@ -19,7 +19,7 @@ seed + difficulty + profile
  mathematical object ---> exact analyzer ---> ground-truth answer
             |
             v
-     display planning ---> deterministic SVG prompt
+     display planning ---> deterministic SVG question section
 ```
 
 ## Current capabilities
@@ -30,9 +30,8 @@ seed + difficulty + profile
 - Exact surface validation and invariant computation from combinatorial data.
 - Integral cellular homology, including torsion and path coordinates in explicit bases.
 - Deterministic, model-ready SVG output and a local browser viewer.
-- Equation-free, aligned level-section prompts for spatial reconstruction of torus links.
+- Equation-free, aligned level-section diagrams for spatial reconstruction of torus links.
 - YAML profiles for generation probabilities and rendering parameters.
-- Sampling traces and complexity counts for reproducibility and cohort auditing.
 - Protocol-based core types that can support additional mathematical domains and media types.
 
 Both domains are wired into the command-line application and the domain-independent viewer.
@@ -58,7 +57,7 @@ pixi run -e dev python -m topology_benchmark --serve --difficulty 5
 ```
 
 Then open `http://127.0.0.1:8000`. The viewer can generate a new seed, replay a seed at a selected
-difficulty, switch among the domains, show all prompts, and reveal the exact answer. A `--domain`
+difficulty, switch among the domains, show every question section, and reveal the exact answer. A `--domain`
 selection changes the initially displayed domain but does not disable the switch. The server also
 exposes:
 
@@ -91,7 +90,7 @@ problem = benchmark.generate(seed=42, difficulty=8)
 
 print(problem.question)
 print(problem.answer)
-print(problem.prompts[0].media_type)  # image/svg+xml in the surface domain
+print(problem.sections[0].media_type)  # image/svg+xml in the surface domain
 ```
 
 A `Problem` contains:
@@ -99,13 +98,13 @@ A `Problem` contains:
 | Field | Meaning |
 | --- | --- |
 | `question` | Natural-language task shown to the answerer |
-| `prompts` | One or more `PromptData` values containing media and display metadata |
+| `sections` | One or more `QuestionSection` values containing supplied question material |
 | `answer` | Exact computed ground truth (`int`, `bool`, or `str` in the surface domain) |
 | `seed` | Seed needed to reproduce the instance |
-| `metadata` | Difficulty, intent, profile, complexity counts, and sampling trace |
+| `question_kind` | Stable kind used for dataset selection and result grouping |
 
-`PromptData` contains a MIME `media_type`, its serialized `content`, and representation metadata.
-The generic viewer knows how to display image, audio, and text prompts; the current surface renderer
+`QuestionSection` contains a MIME `media_type` and its serialized `content`. The generic viewer
+knows how to display image, audio, and text sections; the current surface renderer
 always emits an inline `image/svg+xml` document.
 
 For a fixed seed, difficulty, configuration, and `profile_version`, generation is reproducible.
@@ -130,15 +129,15 @@ Scaffolding decreases with difficulty rather than treating missing information a
 
 Questions use sparse labels and ask for complete partitions of marked corners into folded vertices,
 distances and shortest-path counts between marked vertices, edges, or faces in the folded
-1-skeleton, seam matches, vertex degree, and discrete-curvature comparisons. Curvature prompts show
+1-skeleton, seam matches, vertex degree, and discrete-curvature comparisons. Curvature diagrams show
 every planar corner angle, rounded to the stated precision, and reject
 near-tied defect comparisons. Extrinsic height questions are withheld because a flat net does not
 make the required dihedral reconstruction sufficiently readable.
 Two-net isometry generation is withheld until hard negative examples can be built from the same
 rigid panel kit; the compatibility API renders such comparisons with face correspondences and one
 shared scale. Source-family names, hidden seams, completion counts, and answer-derived geometry are
-not exposed in metadata. Legacy regular-face models remain available for direct API callers and
-regression tests.
+not exposed. Legacy regular-face models remain available for direct API callers and regression
+tests.
 
 ## Torus-slice domain
 
@@ -149,7 +148,7 @@ Hopf-linked pairs, connected chains, or complete Hopf links in which every pair 
 scene is accepted, a conservative distance bound certifies that every pair of tubes is disjoint.
 
 The answerer does not see the core circles, their centers, radii, plane normals, implicit quartic
-equations, link template, or a perspective rendering. The prompt contains only several parallel
+equations, link template, or a perspective rendering. The question material contains only several parallel
 plane intersections, arranged at a common scale in a common coordinate frame. Empty sections above
 and below the family are retained. More sections and more components appear as difficulty rises, so
 one must mentally track how the planar curves are born, merge, split, and move through space.
@@ -233,7 +232,7 @@ normal form, cross-checked using determinantal divisors. The result exposes:
 - ranks and torsion for `H0`, `H1`, and `H2`.
 
 For a path-coordinate question, tagged arrows `e1`, `e2`, ... identify chosen oriented quotient
-edges. The prompt directly defines ordered generators for the invariant-factor decomposition of
+edges. The question directly defines ordered generators for the invariant-factor decomposition of
 `H1` as integer edge chains, such as `h1 = e1 - e3 + e4`, and states the order of each torsion
 generator. Only the queried path is drawn as a path. The exact answer is its coefficient tuple in
 those generators, with torsion coordinates canonically reduced.
@@ -252,7 +251,7 @@ Defaults live in
 
 Incidental paths occur at a low 7.5% noise rate. Path lengths follow a truncated geometric
 distribution. Current display-safety caps are four polygons, eight sides per polygon, and seven
-query-path segments; path-coordinate prompts tag at most eight quotient edges.
+query-path segments; path-coordinate diagrams tag at most eight quotient edges.
 
 An override YAML is recursively layered over the defaults, so it only needs to contain changed
 values:
@@ -335,12 +334,12 @@ src/topology_benchmark/
 The core protocols separate object generation, conditional generation, transformations, invariants,
 questions, representations, and composition. A new problem domain should preserve the same central
 boundary: the renderer receives a mathematical object but the object must not contain the answer or
-display-specific geometry. Exact answers should be computed independently of how the prompt is
+display-specific geometry. Exact answers should be computed independently of how the question is
 drawn.
 
 ## Dynamic evaluation pipeline
 
-The pipeline creates a new dataset at run time, optionally sends its public prompts to a model,
+The pipeline creates a new dataset at run time, optionally sends its public question sections to a model,
 and scores the returned answers. Copy `pipeline.example.yaml` and configure the run size, weighted
 domain mixture, internal generation levels, and optional question-kind mixture. Generation levels
 retain the existing generator controls but are deliberately absent from public examples and result
@@ -369,9 +368,9 @@ Each run has a content-derived identifier and writes a separate directory contai
 | Artifact | Contents |
 | --- | --- |
 | `dataset.public.jsonl` | IDs, domains, questions, and relative media paths |
-| `media/` | The SVG prompts sent to or published for answerers |
-| `ground_truth.private.jsonl` | Answers, generator seeds, and full generator metadata |
-| `manifest.private.json` | Resolved root seed, configuration, profile versions, and realized mix |
+| `media/` | The SVG question sections sent to or published for answerers |
+| `ground_truth.private.jsonl` | Answers, question kinds, and generator seeds |
+| `manifest.private.json` | Resolved root seed, configuration, and realized mix |
 | `predictions.jsonl` | Raw responses, extracted answers, correctness, and API errors |
 | `summary.json` | Overall and per-question-kind accuracy plus failed-request count |
 

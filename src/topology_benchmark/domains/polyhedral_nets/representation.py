@@ -1,10 +1,9 @@
-"""Deterministic SVG rendering of metric nets without revealing seam matches."""
-
 import html
 import math
 from random import Random
 
-from topology_benchmark.core.models import GenerationRequest, PromptData
+from topology_benchmark.core.models import GenerationRequest, QuestionSection
+from topology_benchmark.core.protocols import Representation
 from topology_benchmark.domains.polyhedral_nets.models import (
     FaceCorner,
     NetEdge,
@@ -15,7 +14,7 @@ from topology_benchmark.domains.polyhedral_nets.models import (
 type Point = tuple[float, float]
 
 
-class PolyhedralNetSvgRenderer:
+class PolyhedralNetSvgRenderer(Representation[PolyhedralNet]):
     def common_scale(self, objects: tuple[PolyhedralNet, ...]) -> float:
         """Return one pixels-per-unit scale that fits every net in a comparison."""
         limits = []
@@ -39,7 +38,7 @@ class PolyhedralNetSvgRenderer:
         rng: Random,
         *,
         scale: float | None = None,
-    ) -> PromptData:
+    ) -> QuestionSection:
         del request
         layouts = self._layout(obj)
         points = [point for polygon in layouts for point in polygon]
@@ -196,19 +195,9 @@ class PolyhedralNetSvgRenderer:
             'font-family="sans-serif" font-size="9" fill="#68737d">1 unit</text>'
         )
         chunks.append("</svg>")
-        return PromptData(
+        return QuestionSection(
             "image/svg+xml",
             "".join(chunks),
-            {
-                "representation": "metric-polyhedral-net-svg",
-                "face_count": len(obj.faces),
-                "boundary_edge_count": len(obj.boundary_edges),
-                "seam_matches_shown": bool(obj.seam_hints),
-                "regular_faces": all(not isinstance(face, PolygonFace) for face in obj.faces),
-                "seeded_renderer": True,
-                "pixels_per_unit": f"{scale:.6f}",
-                "corner_angles_shown": bool(obj.corner_angle_labels),
-            },
         )
 
     def _layout(self, net: PolyhedralNet) -> tuple[tuple[Point, ...], ...]:

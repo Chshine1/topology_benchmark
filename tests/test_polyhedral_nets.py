@@ -1,13 +1,19 @@
 from dataclasses import replace
 from fractions import Fraction
+from itertools import pairwise
 from random import Random
 
-from topology_benchmark import PolyhedralNetBenchmark, build_container
+from topology_benchmark import PolyhedralNetsBenchmark, build_container
 from topology_benchmark.core.models import GenerationRequest
 from topology_benchmark.domains.polyhedral_nets import (
+    EdgePair,
     FaceCorner,
+    NetEdge,
     PolygonFace,
+    PolyhedralFolding,
+    PolyhedralNet,
     PolyhedralNetAnalyzer,
+    RegularFace,
     VertexType,
 )
 from topology_benchmark.domains.polyhedral_nets.generation import RandomPolyhedralNetGenerator
@@ -15,7 +21,35 @@ from topology_benchmark.domains.polyhedral_nets.representation import Polyhedral
 
 
 def _bipyramid(size: int, *, marked: bool = False, seed: int = 3):
-    return RandomPolyhedralNetGenerator()._bipyramid(size, Random(seed), marked_vertex=marked)
+    top, bottom = 0, 1
+    ring = tuple(range(2, size + 2))
+    face_vertices = tuple(
+        (top, vertex, ring[(index + 1) % size]) for index, vertex in enumerate(ring)
+    ) + tuple((bottom, ring[(index + 1) % size], vertex) for index, vertex in enumerate(ring))
+    faces = tuple(RegularFace(f"F{index + 1}", 3) for index in range(len(face_vertices)))
+    pairs = RandomPolyhedralNetGenerator._edge_pairs(face_vertices)
+    by_edges = {pair.unordered: pair for pair in pairs}
+
+    def pair(first: NetEdge, second: NetEdge) -> EdgePair:
+        return by_edges[frozenset((first, second))]
+
+    hinges = [pair(NetEdge(index, 1), NetEdge(size + index, 1)) for index in range(size)]
+    rng = Random(seed)
+    first_diamond = rng.randrange(size)
+    order = tuple((first_diamond + offset) % size for offset in range(size))
+    use_top_first = bool(rng.randrange(2))
+    for position, (current, following) in enumerate(pairwise(order)):
+        if (position % 2 == 0) == use_top_first:
+            hinges.append(pair(NetEdge(current, 2), NetEdge(following, 0)))
+        else:
+            hinges.append(pair(NetEdge(size + current, 0), NetEdge(size + following, 2)))
+    hinge_pairs = tuple(hinges)
+    hinge_set = {item.unordered for item in hinge_pairs}
+    seams = tuple(item for item in pairs if item.unordered not in hinge_set)
+    marked_corner = FaceCorner(0, 0) if marked else None
+    return PolyhedralFolding(
+        PolyhedralNet(f"triangular {size}-bipyramid", faces, hinge_pairs, marked_corner), seams
+    )
 
 
 def test_local_angle_classification_is_exact() -> None:
@@ -35,21 +69,21 @@ def test_bipyramid_foldings_are_closed_spheres_with_expected_apex_geometry() -> 
 
     assert convex.euler_characteristic == 2
     assert convex.vertex_neighborhoods_are_disks
-    assert convex.closes_to_convex_polyhedron
+    assert convex.admits_convex_realization
     assert VertexType.FLAT in flat.vertex_types
-    assert not flat.closes_to_convex_polyhedron
+    assert not flat.admits_convex_realization
     assert VertexType.SADDLE in saddle.vertex_types
-    assert not saddle.closes_to_convex_polyhedron
+    assert not saddle.admits_convex_realization
 
 
 def test_renderer_hides_matches_but_labels_boundary_edges() -> None:
     net = _bipyramid(4)
-    prompt = PolyhedralNetSvgRenderer().render(net.net, GenerationRequest(8, 5), Random(8))
+    section = PolyhedralNetSvgRenderer().render(net.net, GenerationRequest(8, 5), Random(8))
 
-    assert prompt.media_type == "image/svg+xml"
-    assert prompt.metadata["seam_matches_shown"] is False
-    assert "e1" in prompt.content
-    assert "unit side length" in prompt.content
+    assert section.media_type == "image/svg+xml"
+    assert "Equal-colored dots" not in section.content
+    assert "e1" in section.content
+    assert "unit side length" in section.content
     assert PolyhedralNetAnalyzer().seam_answer(net)
     solutions = PolyhedralNetAnalyzer().enumerate_locally_convex_pairings(net.net)
     assert len(solutions) == 1
@@ -57,24 +91,24 @@ def test_renderer_hides_matches_but_labels_boundary_edges() -> None:
 
 
 def test_benchmark_is_reproducible_and_wired_into_container() -> None:
-    benchmark = build_container().resolve(PolyhedralNetBenchmark)
+    benchmark = build_container().resolve(PolyhedralNetsBenchmark)
 
     first = benchmark.generate(seed=42, difficulty=10)
     second = benchmark.generate(seed=42, difficulty=10)
 
     assert first == second
-    assert first.metadata["domain"] == "polyhedral-nets"
+    assert first.question_kind
     assert first.question
-    assert first.prompts
+    assert first.sections
 
 
 def test_different_cuts_of_same_solid_are_intrinsically_isometric() -> None:
     generator = RandomPolyhedralNetGenerator()
     analyzer = PolyhedralNetAnalyzer()
     request = GenerationRequest(2, 8)
-    first = generator._bipyramid(5, Random(1))
-    second = generator._bipyramid(5, Random(2))
-    different = generator._bipyramid(4, Random(2))
+    first = _bipyramid(5, seed=1)
+    second = _bipyramid(5, seed=2)
+    different = _bipyramid(4, seed=2)
 
     assert first.net.hinges != second.net.hinges
     assert analyzer.isometric(first, second)
@@ -99,26 +133,20 @@ def test_v2_sources_are_real_irregular_polyhedra_with_nonoverlapping_development
         )
         layouts = tuple(face.points for face in folding.net.faces if isinstance(face, PolygonFace))
         assert not generator._has_overlap(layouts)
-        assert PolyhedralNetAnalyzer().analyze(folding).closes_to_convex_polyhedron
+        assert PolyhedralNetAnalyzer().analyze(folding).admits_convex_realization
 
 
 def test_v6_benchmark_uses_certified_sparse_observations_without_answer_leakage() -> None:
-    benchmark = build_container().resolve(PolyhedralNetBenchmark)
+    benchmark = build_container().resolve(PolyhedralNetsBenchmark)
 
     problems = [benchmark.generate(seed=seed, difficulty=10) for seed in range(25)]
 
-    assert all(
-        problem.metadata["generation_profile"] == "polyhedral-nets-v6" for problem in problems
-    )
-    assert all(problem.metadata["source_is_real_3d"] is True for problem in problems)
-    assert all("local_geometry" not in problem.metadata for problem in problems)
-    assert all("source_name" not in problem.metadata for problem in problems)
-    assert all("diagram drawn to scale" in problem.prompts[0].content for problem in problems)
-    assert len({problem.metadata["question_kind"] for problem in problems}) >= 5
-    assert all(problem.metadata["question_kind"] != "highest-vertex" for problem in problems)
-    assert all(problem.metadata["question_kind"] != "isometric" for problem in problems)
-    assert all(problem.metadata["question_kind"] != "corner-coincidence" for problem in problems)
-    assert all(problem.metadata["question_kind"] != "face-relation" for problem in problems)
+    assert all("diagram drawn to scale" in problem.sections[0].content for problem in problems)
+    assert len({problem.question_kind for problem in problems}) >= 5
+    assert all(problem.question_kind != "highest-vertex" for problem in problems)
+    assert all(problem.question_kind != "isometric" for problem in problems)
+    assert all(problem.question_kind != "corner-coincidence" for problem in problems)
+    assert all(problem.question_kind != "face-relation" for problem in problems)
 
 
 def test_renderer_only_shows_v2_labels_selected_by_the_question() -> None:
@@ -130,17 +158,16 @@ def test_renderer_only_shows_v2_labels_selected_by_the_question() -> None:
         edge_labels=((first_boundary, "A"),),
     )
 
-    prompt = PolyhedralNetSvgRenderer().render(observed, GenerationRequest(3, 7), Random(4))
+    section = PolyhedralNetSvgRenderer().render(observed, GenerationRequest(3, 7), Random(4))
 
-    assert ">A</text>" in prompt.content
-    assert ">F1</text>" not in prompt.content
-    assert prompt.metadata["regular_faces"] is False
+    assert ">A</text>" in section.content
+    assert ">F1</text>" not in section.content
 
 
 def test_adaptive_hint_makes_an_ambiguous_observation_answerable() -> None:
     generator = RandomPolyhedralNetGenerator()
     analyzer = PolyhedralNetAnalyzer()
-    benchmark = build_container().resolve(PolyhedralNetBenchmark)
+    benchmark = build_container().resolve(PolyhedralNetsBenchmark)
     folding = generator.generate(GenerationRequest(61, 7), Random(61))
     solutions = analyzer.enumerate_locally_convex_pairings(folding.net)
     first = FaceCorner(0, 2)
@@ -176,22 +203,21 @@ def test_visual_tolerance_preserves_pairings_hidden_by_exact_metrics() -> None:
 
 
 def test_curvature_questions_show_all_corner_angles_and_have_a_margin() -> None:
-    benchmark = build_container().resolve(PolyhedralNetBenchmark)
+    benchmark = build_container().resolve(PolyhedralNetsBenchmark)
     problem = next(
         problem
         for seed in range(100)
-        if (problem := benchmark.generate(seed=seed, difficulty=10)).metadata["question_kind"]
+        if (problem := benchmark.generate(seed=seed, difficulty=10)).question_kind
         == "curvature-order"
     )
 
     assert "nearest degree" in problem.question
-    assert problem.prompts[0].metadata["corner_angles_shown"] is True
-    assert "°" in problem.prompts[0].content
+    assert "°" in problem.sections[0].content
     assert problem.answer in {"A", "B"}
 
 
 def test_cell_distance_unifies_face_incidence_and_shortest_path_count() -> None:
-    benchmark = build_container().resolve(PolyhedralNetBenchmark)
+    benchmark = build_container().resolve(PolyhedralNetsBenchmark)
     folding = _bipyramid(4)
     face_cells = [("face", face, -1) for face in range(len(folding.net.faces))]
     statistics = {
@@ -206,11 +232,11 @@ def test_cell_distance_unifies_face_incidence_and_shortest_path_count() -> None:
 
 
 def test_vertex_partition_replaces_binary_corner_coincidence() -> None:
-    benchmark = build_container().resolve(PolyhedralNetBenchmark)
+    benchmark = build_container().resolve(PolyhedralNetsBenchmark)
     problem = next(
         problem
         for seed in range(60)
-        if (problem := benchmark.generate(seed=seed, difficulty=10)).metadata["question_kind"]
+        if (problem := benchmark.generate(seed=seed, difficulty=10)).question_kind
         == "vertex-partition"
     )
 
@@ -228,11 +254,13 @@ def test_comparison_rendering_can_use_one_scale_and_matched_face_inventories() -
     first, second = generator.generate_isometry_pair(request, Random(9), isometric=False)
     scale = renderer.common_scale((first.net, second.net))
 
-    first_prompt = renderer.render(first.net, request, Random(1), scale=scale)
-    second_prompt = renderer.render(second.net, request, Random(2), scale=scale)
+    first_section = renderer.render(first.net, request, Random(1), scale=scale)
+    second_section = renderer.render(second.net, request, Random(2), scale=scale)
 
     assert tuple(face.sides for face in first.net.faces) == tuple(
         face.sides for face in second.net.faces
     )
-    assert first_prompt.metadata["pixels_per_unit"] == second_prompt.metadata["pixels_per_unit"]
-    assert "1 unit" in first_prompt.content
+    scale_bar_end = f'x2="{14 + scale:.3f}"'
+    assert scale_bar_end in first_section.content
+    assert scale_bar_end in second_section.content
+    assert "1 unit" in first_section.content

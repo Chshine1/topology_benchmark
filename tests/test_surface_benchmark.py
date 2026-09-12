@@ -14,6 +14,9 @@ from topology_benchmark.domains.surfaces.components.display import (
     Palette,
     SurfaceDiagramPlanner,
 )
+from topology_benchmark.domains.surfaces.components.generation_config import (
+    load_generation_config,
+)
 from topology_benchmark.domains.surfaces.components.generator import (
     RandomSurfaceMorphismGenerator,
     RandomSurfacePresentationGenerator,
@@ -41,8 +44,8 @@ from topology_benchmark.domains.surfaces.models import (
 
 
 def test_generated_quotients_are_compact_surfaces_without_stored_invariants() -> None:
-    generator = RandomSurfacePresentationGenerator()
     analyzer = SurfaceAnalyzer()
+    generator = RandomSurfacePresentationGenerator(load_generation_config(), analyzer)
     for seed in range(80):
         surface = generator.generate(GenerationRequest(seed, 8), random.Random(seed))
         facts = analyzer.analyze(surface)
@@ -54,8 +57,10 @@ def test_generated_quotients_are_compact_surfaces_without_stored_invariants() ->
 
 
 def test_boundary_gluing_is_a_first_class_quotient_map() -> None:
-    morphism = RandomSurfaceMorphismGenerator()._glue_two_disks(random.Random(2), 5)
     analyzer = SurfaceAnalyzer()
+    morphism = RandomSurfaceMorphismGenerator(load_generation_config(), analyzer)._glue_two_disks(
+        random.Random(2), 5
+    )
     source, target = analyzer.analyze(morphism.source), analyzer.analyze(morphism.target)
 
     assert morphism.source is not morphism.target
@@ -69,8 +74,8 @@ def test_boundary_gluing_is_a_first_class_quotient_map() -> None:
 
 
 def test_gluing_the_annulus_boundaries_constructs_torus_or_klein_bottle() -> None:
-    generator = RandomSurfaceMorphismGenerator()
     analyzer = SurfaceAnalyzer()
+    generator = RandomSurfaceMorphismGenerator(load_generation_config(), analyzer)
     targets = [
         analyzer.analyze(generator._close_annulus(random.Random(seed)).target) for seed in range(8)
     ]
@@ -79,7 +84,8 @@ def test_gluing_the_annulus_boundaries_constructs_torus_or_klein_bottle() -> Non
     assert all(facts.boundary_components == 0 for facts in targets)
     assert {facts.components[0].orientable for facts in targets} == {True, False}
     homologies = {
-        integral_homology(generator._close_annulus(random.Random(seed)).target) for seed in range(8)
+        integral_homology(analyzer, generator._close_annulus(random.Random(seed)).target)
+        for seed in range(8)
     }
     assert homologies == {
         "H_0=Z; H_1=Z^2; H_2=Z",
@@ -88,20 +94,25 @@ def test_gluing_the_annulus_boundaries_constructs_torus_or_klein_bottle() -> Non
 
 
 def test_morphism_invariants_are_computed_from_source_and_target() -> None:
-    morphism = RandomSurfaceMorphismGenerator()._glue_two_disks(random.Random(4), 3)
+    analyzer = SurfaceAnalyzer()
+    morphism = RandomSurfaceMorphismGenerator(load_generation_config(), analyzer)._glue_two_disks(
+        random.Random(4), 3
+    )
 
-    assert morphism_answer(morphism, "euler-change") == 0
-    assert morphism_answer(morphism, "boundary-change") == -2
-    assert morphism_answer(morphism, "component-change") == -1
-    assert morphism_answer(morphism, "map-injective") is False
-    assert morphism_answer(morphism, "map-surjective") is True
-    assert morphism_answer(morphism, "homology-isomorphism") is False
-    assert morphism_answer(morphism, "target-homology") == "H_0=Z; H_1=0; H_2=Z"
+    assert morphism_answer(analyzer, morphism, "euler-change") == 0
+    assert morphism_answer(analyzer, morphism, "boundary-change") == -2
+    assert morphism_answer(analyzer, morphism, "component-change") == -1
+    assert morphism_answer(analyzer, morphism, "map-injective") is False
+    assert morphism_answer(analyzer, morphism, "map-surjective") is True
+    assert morphism_answer(analyzer, morphism, "homology-isomorphism") is False
+    assert morphism_answer(analyzer, morphism, "target-homology") == "H_0=Z; H_1=0; H_2=Z"
 
 
 def test_renderer_is_deterministic() -> None:
     request = GenerationRequest(3, 5)
-    surface = RandomSurfacePresentationGenerator().generate(request, random.Random(3))
+    surface = RandomSurfacePresentationGenerator(
+        load_generation_config(), SurfaceAnalyzer()
+    ).generate(request, random.Random(3))
     config = load_rendering_config()
     renderer = MatplotlibGluingDiagramRenderer(SurfaceDiagramPlanner(config), config)
 
@@ -205,23 +216,24 @@ def test_benchmark_only_generates_object_questions_while_morphisms_are_withheld(
     benchmark = build_container().resolve(SurfaceBenchmark)
     problems = [benchmark.generate(seed=seed, difficulty=8) for seed in range(40)]
 
-    assert {problem.metadata["subject"] for problem in problems} == {"object"}
-    assert all(prompt.media_type == "image/svg+xml" for p in problems for prompt in p.prompts)
-    assert all(len(problem.prompts) == 1 for problem in problems)
+    assert all(section.media_type == "image/svg+xml" for p in problems for section in p.sections)
+    assert all(len(problem.sections) == 1 for problem in problems)
     assert benchmark.generate(seed=7, difficulty=8) == benchmark.generate(seed=7, difficulty=8)
 
 
 def test_polygon_attachment_is_a_first_class_inclusion() -> None:
-    morphism = RandomSurfaceMorphismGenerator()._attach_polygon(random.Random(5))
     analyzer = SurfaceAnalyzer()
+    morphism = RandomSurfaceMorphismGenerator(load_generation_config(), analyzer)._attach_polygon(
+        random.Random(5)
+    )
 
     assert morphism.name == "polygon-attachment-inclusion"
     assert len(morphism.target.polygons) == len(morphism.source.polygons) + 1
     assert analyzer.analyze(morphism.source).euler_characteristic == 1
     assert analyzer.analyze(morphism.target).euler_characteristic == 1
-    assert morphism_answer(morphism, "map-injective") is True
-    assert morphism_answer(morphism, "map-surjective") is False
-    assert morphism_answer(morphism, "homology-isomorphism") is True
+    assert morphism_answer(analyzer, morphism, "map-injective") is True
+    assert morphism_answer(analyzer, morphism, "map-surjective") is False
+    assert morphism_answer(analyzer, morphism, "homology-isomorphism") is True
 
 
 def test_difficulty_is_validated() -> None:
@@ -267,7 +279,7 @@ def test_path_coordinates_use_tagged_edges_and_an_explicit_homology_basis() -> N
     )
     analyzer = SurfaceAnalyzer()
     assert analyzer.h1_edge_generators(torus) == (((1, 0), None), ((0, 1), None))
-    assert object_answer(torus, "path-representative") == (1, 0)
+    assert object_answer(analyzer, torus, "path-representative") == (1, 0)
 
     problem = next(
         problem
@@ -276,15 +288,13 @@ def test_path_coordinates_use_tagged_edges_and_an_explicit_homology_basis() -> N
             problem := build_container()
             .resolve(SurfaceBenchmark)
             .generate(seed=seed, difficulty=10)
-        ).metadata["question_kind"]
+        ).question_kind
         == "path-representative"
     )
     assert isinstance(problem.answer, tuple)
     assert "ordered generators" in problem.question
-    tag_count = problem.metadata["tagged_quotient_edge_count"]
-    assert isinstance(tag_count, int) and tag_count > 0
-    assert "<!-- e1 -->" in problem.prompts[0].content
-    assert "c1" not in problem.prompts[0].content
+    assert "<!-- e1 -->" in problem.sections[0].content
+    assert "c1" not in problem.sections[0].content
 
 
 def test_an_edge_cannot_be_used_by_two_gluings() -> None:

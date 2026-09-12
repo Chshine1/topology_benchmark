@@ -1,15 +1,11 @@
-"""Surface-domain extension points."""
-
 from random import Random
 from typing import Protocol
 
-from topology_benchmark.core.models import GenerationRequest, PromptData
+from topology_benchmark.core.models import GenerationRequest, QuestionSection
 from topology_benchmark.core.probability import SamplingSession
 from topology_benchmark.core.protocols import (
     ConditionalGenerator,
-    Invariant,
     ObjectGenerator,
-    Question,
     Representation,
 )
 from topology_benchmark.domains.surfaces.generation import (
@@ -51,12 +47,4 @@ class SurfaceRepresentation(Representation[SurfacePresentation], Protocol):
         rng: Random,
         *,
         edge_labels: tuple[tuple[EdgeRef, str], ...] = (),
-    ) -> PromptData: ...
-
-
-class SurfaceInvariant(Invariant[SurfacePresentation, SurfaceAnswer], Protocol):
-    pass
-
-
-class SurfaceQuestion(Question[SurfaceAnswer], Protocol):
-    pass
+    ) -> QuestionSection: ...

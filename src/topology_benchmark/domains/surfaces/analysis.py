@@ -1,5 +1,3 @@
-"""Topology and cellular homology derived from polygon edge gluings."""
-
 from dataclasses import dataclass
 from math import gcd
 
@@ -45,11 +43,9 @@ class SurfaceFacts:
 
 @dataclass(frozen=True, slots=True)
 class CellularHomology:
-    """An explicit presentation of H1 plus its Smith invariants.
+    """``relations`` are d2 columns in the fundamental ``cycle_basis`` of ker(d1).
 
-    ``cycle_basis`` is the fundamental-cycle basis of ker(d1), ``relations``
-    are the columns of d2 in that basis, and ``smith_diagonal`` classifies the
-    quotient. This also gives unambiguous coordinates for every edge-path.
+    ``smith_coordinate_map`` converts coordinates in that basis to the Smith basis.
     """
 
     edge_basis: tuple[EdgeRef, ...]
@@ -158,7 +154,7 @@ class SurfaceAnalyzer:
     def path_homology_class(
         self, surface: SurfacePresentation, path: SurfacePath
     ) -> tuple[int, ...]:
-        """Return path coordinates in the Smith basis, reducing torsion entries."""
+        """Smith-basis coordinates, with torsion coordinates reduced modulo their orders."""
 
         cycle = self.path_representative(surface, path)
         homology = self.cellular_homology(surface)
@@ -184,7 +180,7 @@ class SurfaceAnalyzer:
     def _fundamental_cycle_chains(
         self, surface: SurfacePresentation
     ) -> tuple[tuple[int, ...], ...]:
-        """Return oriented quotient-edge chains for the internal graph-cycle basis."""
+        """The graph-cycle basis expressed as oriented quotient-edge chains."""
 
         offsets, vertex_dsu, _ = self._quotient(surface)
         edge_basis, _ = self._quotient_edges(surface)
@@ -260,7 +256,7 @@ class SurfaceAnalyzer:
     def h1_generators(
         self, surface: SurfacePresentation
     ) -> tuple[tuple[tuple[int, ...], int | None], ...]:
-        """Return Smith generators as cycle-basis coefficients and their optional orders."""
+        """Smith generators as cycle-basis coefficients, paired with finite orders."""
 
         homology = self.cellular_homology(surface)
         diagonal = (
@@ -276,7 +272,7 @@ class SurfaceAnalyzer:
     def h1_edge_generators(
         self, surface: SurfacePresentation
     ) -> tuple[tuple[tuple[int, ...], int | None], ...]:
-        """Return actual H1 generators as oriented quotient-edge chains and their orders."""
+        """Smith generators as oriented quotient-edge chains, paired with finite orders."""
 
         homology = self.cellular_homology(surface)
         cycle_chains = self._fundamental_cycle_chains(surface)
@@ -297,7 +293,7 @@ class SurfaceAnalyzer:
     def path_homology_coefficients(
         self, surface: SurfacePresentation, path: SurfacePath
     ) -> tuple[int, ...]:
-        """Return only the coordinates in the ordered, nonzero H1 Smith generators."""
+        """Path coordinates after omitting Smith factors equal to one."""
 
         homology = self.cellular_homology(surface)
         coordinates = self.path_homology_class(surface, path)
@@ -483,15 +479,15 @@ class SurfaceAnalyzer:
                     occurrence[mate] = (index, sign)
         return basis, occurrence
 
-    @staticmethod
+    @classmethod
     def _smith_invariants(
-        relations: tuple[tuple[int, ...], ...], dimension: int
+        cls, relations: tuple[tuple[int, ...], ...], dimension: int
     ) -> tuple[int, ...]:
         """Smith factors via determinantal divisors (small benchmark matrices)."""
         if not relations or dimension == 0:
             return ()
         matrix = [list(row) for row in zip(*relations, strict=False)]  # cycle rank x faces
-        rank = SurfaceAnalyzer._rational_rank(matrix)
+        rank = cls._rational_rank(matrix)
         if rank == 0:
             return ()
         divisors = [1]
@@ -503,7 +499,7 @@ class SurfaceAnalyzer:
                 for cols in combinations(range(len(matrix[0])), size):
                     value = gcd(
                         value,
-                        abs(SurfaceAnalyzer._det([[matrix[r][c] for c in cols] for r in rows])),
+                        abs(cls._det([[matrix[r][c] for c in cols] for r in rows])),
                     )
             divisors.append(value)
         return tuple(divisors[i] // divisors[i - 1] for i in range(1, len(divisors)))
@@ -637,16 +633,14 @@ class SurfaceAnalyzer:
             rank += 1
         return rank
 
-    @staticmethod
-    def _det(matrix: list[list[int]]) -> int:
+    @classmethod
+    def _det(cls, matrix: list[list[int]]) -> int:
         if not matrix:
             return 1
         if len(matrix) == 1:
             return matrix[0][0]
         return sum(
-            (-1) ** col
-            * value
-            * SurfaceAnalyzer._det([row[:col] + row[col + 1 :] for row in matrix[1:]])
+            (-1) ** col * value * cls._det([row[:col] + row[col + 1 :] for row in matrix[1:]])
             for col, value in enumerate(matrix[0])
         )
 

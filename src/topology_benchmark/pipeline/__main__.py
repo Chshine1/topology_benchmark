@@ -1,5 +1,3 @@
-"""Command line entry point for dynamic benchmark runs."""
-
 import argparse
 
 from topology_benchmark.pipeline import BenchmarkPipeline, load_pipeline_config

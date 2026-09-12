@@ -1,12 +1,10 @@
-"""Seeded construction and non-overlapping unfolding of real convex polyhedra."""
-
 import math
 from dataclasses import dataclass
 from fractions import Fraction
-from itertools import pairwise
 from random import Random
 
 from topology_benchmark.core.models import GenerationRequest
+from topology_benchmark.core.protocols import ObjectGenerator
 from topology_benchmark.domains.polyhedral_nets.models import (
     EdgePair,
     FaceCorner,
@@ -17,7 +15,6 @@ from topology_benchmark.domains.polyhedral_nets.models import (
     PolyhedralFolding,
     PolyhedralNet,
     Polyhedron3D,
-    RegularFace,
 )
 
 
@@ -42,7 +39,7 @@ def _cross(first: Point3, second: Point3) -> Point3:
     )
 
 
-class RandomPolyhedralNetGenerator:
+class RandomPolyhedralNetGenerator(ObjectGenerator[PolyhedralFolding]):
     """Generate planar developments from validated, exact-coordinate 3D sources."""
 
     def generate(
@@ -213,7 +210,6 @@ class RandomPolyhedralNetGenerator:
 
     @staticmethod
     def validate_source(source: Polyhedron3D) -> None:
-        """Validate the exact combinatorics, planarity, orientation, and convexity."""
         occurrences: dict[tuple[int, int], list[tuple[int, int]]] = {}
         for face in source.faces:
             first, second, third = (source.vertices[face[index]] for index in range(3))
@@ -403,48 +399,3 @@ class RandomPolyhedralNetGenerator:
                 if min(max(a), max(b)) - max(min(a), min(b)) <= 1e-8:
                     return False
         return True
-
-    # Legacy helper retained for API compatibility and focused curvature tests.
-    def _bipyramid(
-        self, equator_size: int, rng: Random, *, marked_vertex: bool = False
-    ) -> PolyhedralFolding:
-        if equator_size < 3:
-            raise ValueError("a bipyramid needs at least three equatorial vertices")
-        top, bottom = 0, 1
-        ring = tuple(range(2, equator_size + 2))
-        face_vertices: list[tuple[int, int, int]] = []
-        for index, vertex in enumerate(ring):
-            following = ring[(index + 1) % equator_size]
-            face_vertices.append((top, vertex, following))
-        for index, vertex in enumerate(ring):
-            following = ring[(index + 1) % equator_size]
-            face_vertices.append((bottom, following, vertex))
-        faces = tuple(RegularFace(f"F{index + 1}", 3) for index in range(len(face_vertices)))
-        all_pairs = self._edge_pairs(tuple(face_vertices))
-        hinges = self._bipyramid_hinges(equator_size, all_pairs, rng)
-        hinge_set = {pair.unordered for pair in hinges}
-        seams = tuple(pair for pair in all_pairs if pair.unordered not in hinge_set)
-        marked = FaceCorner(0, 0) if marked_vertex else None
-        return PolyhedralFolding(
-            PolyhedralNet(f"triangular {equator_size}-bipyramid", faces, hinges, marked), seams
-        )
-
-    @staticmethod
-    def _bipyramid_hinges(
-        size: int, pairs: tuple[EdgePair, ...], rng: Random
-    ) -> tuple[EdgePair, ...]:
-        by_edges = {pair.unordered: pair for pair in pairs}
-
-        def pair(first: NetEdge, second: NetEdge) -> EdgePair:
-            return by_edges[frozenset((first, second))]
-
-        result = [pair(NetEdge(index, 1), NetEdge(size + index, 1)) for index in range(size)]
-        first_diamond = rng.randrange(size)
-        order = tuple((first_diamond + offset) % size for offset in range(size))
-        use_top_first = bool(rng.randrange(2))
-        for position, (current, following) in enumerate(pairwise(order)):
-            if (position % 2 == 0) == use_top_first:
-                result.append(pair(NetEdge(current, 2), NetEdge(following, 0)))
-            else:
-                result.append(pair(NetEdge(size + current, 0), NetEdge(size + following, 2)))
-        return tuple(result)

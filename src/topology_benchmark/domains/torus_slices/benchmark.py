@@ -1,7 +1,6 @@
-"""Application service for spatial reasoning from torus level sections."""
-
 from topology_benchmark.core.models import GenerationRequest, Problem
 from topology_benchmark.core.probability import SamplingSession
+from topology_benchmark.core.protocols import ProblemProvider
 from topology_benchmark.domains.torus_slices.analysis import TorusFamilyAnalyzer
 from topology_benchmark.domains.torus_slices.generation import RandomTorusSliceGenerator
 from topology_benchmark.domains.torus_slices.representation import TorusSliceSvgRenderer
@@ -9,9 +8,7 @@ from topology_benchmark.domains.torus_slices.representation import TorusSliceSvg
 type TorusSliceAnswer = int | bool
 
 
-class TorusSlicesBenchmark:
-    """Ask topological questions while revealing only finitely many parallel slices."""
-
+class TorusSlicesBenchmark(ProblemProvider):
     profile_version = "torus-slices-v2"
 
     def __init__(
@@ -79,29 +76,15 @@ class TorusSlicesBenchmark:
             answer = len(linked_pairs)
         else:
             raise RuntimeError(f"unsupported torus-slice question kind: {kind}")
-        sampling.note("intent.question-kind", kind)
-        prompt = self._representation.render(
+        section = self._representation.render(
             observation, request, sampling.rng("render.level-sections")
         )
         return Problem(
             question=question,
-            prompts=(prompt,),
+            sections=(section,),
             answer=answer,
             seed=seed,
-            metadata={
-                "difficulty": difficulty,
-                "domain": "torus-slices",
-                "subject": "torus-family",
-                "question_kind": kind,
-                "generation_profile": self.profile_version,
-                "sampling_trace": sampling.trace_json(),
-                "pairwise_disjoint_certified": True,
-                "elliptic_core_tori": True,
-                "rigid_round_tori": False,
-                "observation_perturbed": False,
-                "height_direction_shown": True,
-                "hidden_equations": True,
-            },
+            question_kind=kind,
         )
 
     @staticmethod

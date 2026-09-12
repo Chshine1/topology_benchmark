@@ -1,5 +1,3 @@
-"""Probabilistic selection of a question before its mathematical instance."""
-
 from topology_benchmark.core.models import GenerationRequest
 from topology_benchmark.core.probability import FiniteDistribution, SamplingSession, WeightedValue
 from topology_benchmark.domains.surfaces.components.generation_config import (
@@ -14,14 +12,11 @@ from topology_benchmark.domains.surfaces.ports import SurfaceIntentGenerator
 
 
 class RandomSurfaceIntentGenerator(SurfaceIntentGenerator):
-    """Select an object question with smoothly difficulty-dependent weights."""
-
     def __init__(self, config: SurfaceGenerationConfig) -> None:
         self.config = config
 
     def sample(self, request: GenerationRequest, sampling: SamplingSession) -> SurfaceProblemIntent:
-        # The current morphism families are retained as construction APIs, but are not benchmark
-        # questions until maps with explicit correspondences and induced-map answers are available.
+        # Morphism questions need explicit correspondences and induced-map answers first.
         return self._object_intent(request, sampling)
 
     def _object_intent(

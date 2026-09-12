@@ -1,5 +1,3 @@
-"""Matplotlib SVG adapter for planned polygon-gluing diagrams."""
-
 import io
 from random import Random
 
@@ -10,7 +8,7 @@ from matplotlib.figure import Figure
 from matplotlib.patches import FancyArrowPatch
 from matplotlib.patches import Polygon as PolygonPatch
 
-from topology_benchmark.core.models import GenerationRequest, PromptData
+from topology_benchmark.core.models import GenerationRequest, QuestionSection
 from topology_benchmark.domains.surfaces.components.display import (
     DiagramPlan,
     LinePattern,
@@ -27,8 +25,6 @@ from topology_benchmark.domains.surfaces.ports import SurfaceRepresentation
 
 
 class MatplotlibGluingDiagramRenderer(SurfaceRepresentation):
-    """Render a clean, reproducible SVG from a library-neutral diagram plan."""
-
     def __init__(self, planner: SurfaceDiagramPlanner, config: SurfaceRenderingConfig) -> None:
         self._planner = planner
         self._config = config
@@ -40,7 +36,7 @@ class MatplotlibGluingDiagramRenderer(SurfaceRepresentation):
         rng: Random,
         *,
         edge_labels: tuple[tuple[EdgeRef, str], ...] = (),
-    ) -> PromptData:
+    ) -> QuestionSection:
         del rng
         plan = self._planner.plan(obj, Random((request.seed << 8) ^ 0xA53C9E))
         figure = Figure(
@@ -68,22 +64,9 @@ class MatplotlibGluingDiagramRenderer(SurfaceRepresentation):
                 output,
                 metadata={"Date": None, "Creator": "topology_benchmark"},
             )
-        return PromptData(
+        return QuestionSection(
             "image/svg+xml",
             output.getvalue(),
-            {
-                "representation": "matplotlib-polygon-gluing-diagram",
-                "polygon_count": len(obj.polygons),
-                "path_count": len(obj.paths),
-                "oriented_edge_tags": len(edge_labels),
-                "boundary_style": plan.style.boundary_pattern.value,
-                "path_order_styles": ",".join(
-                    curve.style.order_display.value
-                    for curve in plan.curves
-                    if curve.segment.order == 1
-                ),
-                "seeded_renderer": True,
-            },
         )
 
     def _draw_edge_labels(

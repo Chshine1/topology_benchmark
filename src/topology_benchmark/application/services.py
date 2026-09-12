@@ -1,5 +1,3 @@
-"""Intent-first benchmark use cases for mathematical objects."""
-
 from collections import deque
 from collections.abc import Callable
 from dataclasses import replace
@@ -7,6 +5,7 @@ from random import Random
 
 from topology_benchmark.core.models import GenerationRequest, Problem
 from topology_benchmark.core.probability import SamplingSession
+from topology_benchmark.core.protocols import ProblemProvider
 from topology_benchmark.domains.polyhedral_nets.analysis import PolyhedralNetAnalyzer
 from topology_benchmark.domains.polyhedral_nets.generation import RandomPolyhedralNetGenerator
 from topology_benchmark.domains.polyhedral_nets.models import (
@@ -25,9 +24,7 @@ from topology_benchmark.domains.surfaces.components.invariant import object_answ
 from topology_benchmark.domains.surfaces.components.question import formulate_object
 from topology_benchmark.domains.surfaces.generation import (
     SurfaceGenerationContext,
-    SurfaceProblemIntent,
 )
-from topology_benchmark.domains.surfaces.models import SurfacePresentation
 from topology_benchmark.domains.surfaces.ports import (
     SurfaceAnswer,
     SurfaceGenerator,
@@ -36,18 +33,20 @@ from topology_benchmark.domains.surfaces.ports import (
 )
 
 
-class SurfaceBenchmark:
+class SurfaceBenchmark(ProblemProvider):
     def __init__(
         self,
         generator: SurfaceGenerator,
         representation: SurfaceRepresentation,
         intent_generator: SurfaceIntentGenerator,
         generation_config: SurfaceGenerationConfig,
+        analyzer: SurfaceAnalyzer,
     ) -> None:
         self._generator = generator
         self._representation = representation
         self._intent_generator = intent_generator
         self._config = generation_config
+        self._analyzer = analyzer
 
     def generate(self, *, seed: int, difficulty: int = 1) -> Problem[SurfaceAnswer]:
         request = GenerationRequest(seed=seed, difficulty=difficulty)
@@ -60,72 +59,37 @@ class SurfaceBenchmark:
         surface = self._generator.generate_for(context)
         edge_labels = ()
         if context.intent.question_kind == "path-representative":
-            analyzer = SurfaceAnalyzer()
             used_edges = {
                 edge
-                for coefficients, _ in analyzer.h1_edge_generators(surface)
+                for coefficients, _ in self._analyzer.h1_edge_generators(surface)
                 for edge, coefficient in enumerate(coefficients)
                 if coefficient
             }
-            homology = analyzer.cellular_homology(surface)
+            homology = self._analyzer.cellular_homology(surface)
             edge_labels = tuple(
                 (homology.edge_basis[edge], f"e{tag}")
                 for tag, edge in enumerate(sorted(used_edges), start=1)
             )
-        prompt = self._representation.render(
+        section = self._representation.render(
             surface,
             context.request,
             context.sampling.rng("render.object"),
             edge_labels=edge_labels,
         )
-        metadata = self._common_metadata(context.intent, context)
-        metadata.update(self._surface_metadata(surface))
-        if context.intent.question_kind == "path-representative":
-            metadata["tagged_quotient_edge_count"] = len(edge_labels)
         return Problem(
-            question=formulate_object(surface, context.intent.question_kind, 0),
-            prompts=(prompt,),
-            answer=object_answer(surface, context.intent.question_kind, 0),
+            question=formulate_object(self._analyzer, surface, context.intent.question_kind, 0),
+            sections=(section,),
+            answer=object_answer(self._analyzer, surface, context.intent.question_kind, 0),
             seed=context.request.seed,
-            metadata=metadata,
+            question_kind=context.intent.question_kind,
         )
-
-    def _common_metadata(
-        self,
-        intent: SurfaceProblemIntent,
-        context: SurfaceGenerationContext,
-    ) -> dict[str, str | int | bool]:
-        return {
-            "difficulty": context.request.difficulty,
-            "subject": intent.subject.value,
-            "question_focus": intent.focus.value,
-            "question_kind": intent.question_kind,
-            "generation_profile": self._config.profile_version,
-            "intentional_noise": intent.noise
-            or any(event.noise for event in context.sampling.events),
-            "sampling_trace": context.sampling.trace_json(),
-            "visual_parameters_generated": False,
-            "renderer_randomness": True,
-        }
-
-    @staticmethod
-    def _surface_metadata(surface: SurfacePresentation) -> dict[str, int]:
-        return {
-            "polygon_count": len(surface.polygons),
-            "polygon_edges": sum(polygon.sides for polygon in surface.polygons),
-            "gluing_count": len(surface.gluings),
-            "path_count": len(surface.paths),
-            "path_segments": sum(len(path.edges) for path in surface.paths),
-        }
 
 
 type PolyhedralNetAnswer = int | str | bool
 type MarkedNetCell = tuple[str, int, int]
 
 
-class PolyhedralNetsBenchmark:
-    """Spatial-inference benchmark over certified observations of real polyhedra."""
-
+class PolyhedralNetsBenchmark(ProblemProvider):
     profile_version = "polyhedral-nets-v6"
     # Below this relative difference, a rendered edge-length distinction is not treated as
     # observable. This prevents hidden exact metrics from silently resolving a seam ambiguity.
@@ -170,27 +134,15 @@ class PolyhedralNetsBenchmark:
                 if built is None:
                     continue
                 question, answer, observed = built
-                sampling.note("intent.question-kind", kind)
-                prompt = self._representation.render(
+                section = self._representation.render(
                     observed, request, sampling.rng("render.object")
                 )
                 return Problem(
                     question=question,
-                    prompts=(prompt,),
+                    sections=(section,),
                     answer=answer,
                     seed=seed,
-                    metadata={
-                        "difficulty": difficulty,
-                        "domain": "polyhedral-nets",
-                        "subject": "object",
-                        "question_kind": kind,
-                        "generation_profile": self.profile_version,
-                        "sampling_trace": sampling.trace_json(),
-                        "metric_geometry": True,
-                        "source_is_real_3d": True,
-                        "drawn_to_scale": True,
-                        "partial_gluing_hints": bool(observed.seam_hints),
-                    },
+                    question_kind=kind,
                 )
         raise RuntimeError("could not generate a certified polyhedral-net question")
 
@@ -202,9 +154,8 @@ class PolyhedralNetsBenchmark:
         geometric = (*basic, "vertex-degree", "curvature-order", "cell-shortest-path-count")
         if difficulty <= 6:
             return geometric
-        # Two-net isometry is intentionally withheld. A sound negative needs
-        # two valid convex assemblies of the same rigid panel kit; merely choosing visibly
-        # different face inventories tests shortcut detection rather than spatial reasoning.
+        # A sound non-isometry needs different convex assemblies of the same visible panel kit;
+        # different face inventories would reveal the answer without spatial reasoning.
         return geometric
 
     def _isometry_problem(
@@ -237,9 +188,8 @@ class PolyhedralNetsBenchmark:
                 observed.append(replace(folding.net, seam_hints=hints, face_labels=face_labels))
             if len(observed) != 2:
                 continue
-            sampling.note("intent.question-kind", "isometric")
             common_scale = self._representation.common_scale(tuple(observed))
-            prompts = tuple(
+            sections = tuple(
                 self._representation.render(
                     net,
                     request,
@@ -254,23 +204,10 @@ class PolyhedralNetsBenchmark:
                     "correspondences. Do the nets reconstruct intrinsically isometric convex "
                     "polyhedral surfaces?"
                 ),
-                prompts=prompts,
+                sections=sections,
                 answer=self._analyzer.isometric(first, second),
                 seed=request.seed,
-                metadata={
-                    "difficulty": request.difficulty,
-                    "domain": "polyhedral-nets",
-                    "subject": "comparison",
-                    "question_kind": "isometric",
-                    "generation_profile": self.profile_version,
-                    "sampling_trace": sampling.trace_json(),
-                    "metric_geometry": True,
-                    "source_is_real_3d": True,
-                    "drawn_to_scale": True,
-                    "partial_gluing_hints": any(net.seam_hints for net in observed),
-                    "common_render_scale": True,
-                    "face_correspondence_shown": True,
-                },
+                question_kind="isometric",
             )
         return None
 
@@ -640,7 +577,7 @@ class PolyhedralNetsBenchmark:
         compute = answer
         candidates = list(solutions)
         hints: list[EdgePair] = []
-        # Scaffolding decreases with difficulty. Missing information is not difficulty.
+        # Reduce hints with difficulty, but reject instances whose answer remains ambiguous.
         budget = 3 if difficulty <= 3 else 2 if difficulty <= 6 else 1
         target = compute(truth)
         while (
@@ -689,6 +626,3 @@ class PolyhedralNetsBenchmark:
             first in group and second in group
             for group in self._analyzer.analyze(net, seams).vertices
         )
-
-
-PolyhedralNetBenchmark = PolyhedralNetsBenchmark

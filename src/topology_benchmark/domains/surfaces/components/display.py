@@ -1,15 +1,11 @@
-"""Typed visual planning for polygon-gluing diagrams.
-
-This module deliberately contains no graphics-library code. It turns combinatorial surface
-data into regular-polygon layouts and styled Bezier curves that any raster or
-vector adapter can draw.
-"""
-
 import math
 from dataclasses import dataclass
 from enum import Enum
 from random import Random
 
+from attrs import field, frozen
+
+from topology_benchmark.core.validation import nonempty, number_range
 from topology_benchmark.domains.surfaces.components.rendering_config import (
     SurfaceRenderingConfig,
 )
@@ -29,35 +25,35 @@ class LinePattern(Enum):
 
 
 class OrderDisplay(Enum):
-    """Ways to encode the position of a segment in a displayed path."""
-
     NUMBER_TAG = "number-tag"
     ARROW_COUNT = "arrow-count"
 
 
-@dataclass(frozen=True, slots=True)
+@frozen
 class Palette:
     fill: str
     ink: str
-    path_colors: tuple[str, ...]
-
-    def __post_init__(self) -> None:
-        if not self.path_colors:
-            raise ValueError("a palette needs at least one path color")
+    path_colors: tuple[str, ...] = field(
+        validator=nonempty("a palette needs at least one path color")
+    )
 
 
-@dataclass(frozen=True, slots=True)
+@frozen
 class DiagramStyle:
     palette: Palette
     boundary_pattern: LinePattern
     polygon_width: float = 2.6
-    path_width: float = 2.2
+    path_width: float = field(
+        default=2.2,
+        validator=number_range(
+            minimum=1.0,
+            message="line widths must be positive",
+        ),
+    )
 
-    def __post_init__(self) -> None:
+    def __attrs_post_init__(self) -> None:
         if self.path_width > self.polygon_width:
             raise ValueError("paths must be no wider than polygon edges")
-        if self.path_width < 1:
-            raise ValueError("line widths must be positive")
 
 
 @dataclass(frozen=True, slots=True)
@@ -119,8 +115,6 @@ class _StackKey:
 
 
 class SurfaceDiagramPlanner:
-    """Plan a diagram independently of a concrete graphics library."""
-
     def __init__(self, config: SurfaceRenderingConfig) -> None:
         self.config = config
 
@@ -168,12 +162,7 @@ class SurfaceDiagramPlanner:
         layouts: tuple[PolygonLayout, ...],
         segments: tuple[PathSegment, ...],
     ) -> tuple[PathSegment, ...]:
-        """Expand polygon-local loops into their actual directed boundary edges.
-
-        Replacing such a run by an interior circle suggests a new geometric loop
-        that is not present in the edge walk. Drawing its constituent edge arcs is
-        both faithful and makes its contractibility within the face apparent.
-        """
+        """Split polygon-local loops so they are drawn along their actual boundary edges."""
         result: list[PathSegment] = []
         orders: dict[int, int] = {}
         for segment in segments:
@@ -192,7 +181,6 @@ class SurfaceDiagramPlanner:
     def edge_pattern(
         surface: SurfacePresentation, edge: EdgeRef, boundary_pattern: LinePattern
     ) -> LinePattern:
-        """Return the required stroke pattern for one polygon side."""
         for gluing in surface.gluings:
             if edge == gluing.first:
                 return (
@@ -308,7 +296,6 @@ class SurfaceDiagramPlanner:
         layouts: tuple[PolygonLayout, ...],
         curves: tuple[PathCurve, ...],
     ) -> tuple[PathCurve, ...]:
-        """Choose nearby blank positions instead of covering geometry or other labels."""
         fixed_obstacles = [layout.center for layout in layouts]
         fixed_obstacles.extend(point for layout in layouts for point in layout.vertices)
         fixed_obstacles.extend(

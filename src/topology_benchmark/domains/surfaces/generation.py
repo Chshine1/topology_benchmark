@@ -1,5 +1,3 @@
-"""Typed intent passed through probabilistic surface generation."""
-
 from dataclasses import dataclass
 from enum import Enum
 
@@ -25,7 +23,6 @@ class SurfaceProblemIntent:
     subject: ProblemSubject
     question_kind: str
     focus: QuestionFocus
-    noise: bool = False
 
 
 @dataclass(frozen=True, slots=True)

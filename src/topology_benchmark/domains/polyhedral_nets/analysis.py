@@ -1,5 +1,3 @@
-"""Exact local and topological checks for candidate foldings of a net."""
-
 import math
 from dataclasses import dataclass
 from enum import Enum
@@ -39,17 +37,9 @@ class NetAnalysis:
     positive_curvature_metric: bool
     admits_convex_realization: bool
 
-    @property
-    def locally_convex(self) -> bool:
-        return self.positive_curvature_metric
-
-    @property
-    def closes_to_convex_polyhedron(self) -> bool:
-        return self.admits_convex_realization
-
 
 class PolyhedralNetAnalyzer:
-    """Analyze the intended seam pairing independently of the drawing."""
+    """Uses declared hinges and seams, never rendered coordinates."""
 
     def analyze(
         self,
@@ -160,12 +150,9 @@ class PolyhedralNetAnalyzer:
         max_solutions: int | None = None,
         relative_length_tolerance: float = 0.0,
     ) -> tuple[tuple[EdgePair, ...], ...]:
-        """Enumerate visually compatible boundary pairings passing local closure checks.
+        """Find locally convex closures without simulating collision-free folding.
 
-        This deliberately tests intrinsic closure and local convexity; it does not claim to
-        simulate collision-free rigid motion in three-space. By default edge metrics must be
-        exactly equal. A positive tolerance models the finite precision of a rendered diagram:
-        edges whose displayed lengths cannot reliably be distinguished remain candidates.
+        A positive length tolerance treats visually indistinguishable edges as equal.
         """
         if relative_length_tolerance < 0:
             raise ValueError("relative length tolerance cannot be negative")
@@ -180,7 +167,7 @@ class PolyhedralNetAnalyzer:
                 return
             if not remaining:
                 result = self.analyze(net, (*net.seam_hints, *chosen))
-                if result.closes_to_convex_polyhedron:
+                if result.admits_convex_realization:
                     solutions.append((*net.seam_hints, *chosen))
                 return
             first = remaining[0]

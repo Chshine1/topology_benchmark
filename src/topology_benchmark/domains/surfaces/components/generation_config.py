@@ -1,28 +1,40 @@
-"""Validated YAML probability profile for surface problem generation."""
-
-import math
 from collections.abc import Mapping
-from dataclasses import dataclass
 from pathlib import Path
-from typing import cast
+from typing import Annotated, Self, cast
 
 import yaml
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from topology_benchmark.core.probability import interpolate_anchors
 
 type ConfigMap = dict[str, object]
+type Difficulty = Annotated[int, Field(ge=1, le=10)]
+type PolygonCount = Annotated[int, Field(ge=1, le=4)]
+type Nonnegative = Annotated[float, Field(ge=0, allow_inf_nan=False)]
+type Probability = Annotated[float, Field(ge=0, le=1)]
+type PathMaximum = Annotated[float, Field(ge=1, le=7)]
+type Anchors = Annotated[dict[Difficulty, Nonnegative], Field(min_length=1)]
+type ProbabilityAnchors = Annotated[dict[Difficulty, Probability], Field(min_length=1)]
+type PathMaximumAnchors = Annotated[dict[Difficulty, PathMaximum], Field(min_length=1)]
 
 
-@dataclass(frozen=True, slots=True)
-class AnchoredValue:
+class _StrictConfigModel(BaseModel):
+    model_config = ConfigDict(
+        frozen=True,
+        strict=True,
+        extra="forbid",
+        validate_default=True,
+    )
+
+
+class AnchoredValue(_StrictConfigModel):
     anchors: tuple[tuple[int, float], ...]
 
     def at(self, difficulty: int) -> float:
         return interpolate_anchors(self.anchors, difficulty)
 
 
-@dataclass(frozen=True, slots=True)
-class DifficultyProfile:
+class DifficultyProfile(_StrictConfigModel):
     global_question_weight: AnchoredValue
     classification_question_weight: AnchoredValue
     path_question_weight: AnchoredValue
@@ -34,8 +46,7 @@ class DifficultyProfile:
     visual_budget: AnchoredValue
 
 
-@dataclass(frozen=True, slots=True)
-class SurfaceGenerationConfig:
+class SurfaceGenerationConfig(_StrictConfigModel):
     profile_version: str
     noise_probability: float
     retry_limit: int
@@ -44,37 +55,63 @@ class SurfaceGenerationConfig:
     morphism_family_weights: dict[str, AnchoredValue]
     morphism_affinity: dict[str, dict[str, float]]
 
-    def __post_init__(self) -> None:
-        if not self.profile_version:
-            raise ValueError("generation.profile_version must not be empty")
-        if not 0 <= self.noise_probability <= 1:
-            raise ValueError("generation.noise_probability must be a probability")
-        if self.retry_limit < 1:
-            raise ValueError("generation.retry_limit must be positive")
-        probability_profiles = (
-            self.difficulty.side_continuation,
-            self.difficulty.gluing_density,
-            self.difficulty.path_continuation,
-        )
-        if any(
-            not 0 <= value <= 1 for profile in probability_profiles for _, value in profile.anchors
-        ):
-            raise ValueError("generation probability profiles must stay between zero and one")
-        if not self.difficulty.polygon_count_weights or any(
-            not 1 <= count <= 4 for count in self.difficulty.polygon_count_weights
-        ):
-            raise ValueError("polygon counts must stay between one and four")
-        if any(not 1 <= value <= 7 for _, value in self.difficulty.path_maximum.anchors):
-            raise ValueError("path maxima must stay between one and seven")
-        expected_families = {
+
+class _QuestionFamilyWeights(_StrictConfigModel):
+    global_: Anchors = Field(alias="global")
+    classification: Anchors
+    path: Anchors
+
+
+class _ScalarProfiles(_StrictConfigModel):
+    side_continuation: ProbabilityAnchors
+    gluing_density: ProbabilityAnchors
+    path_continuation: ProbabilityAnchors
+    path_maximum: PathMaximumAnchors
+    visual_budget: Anchors
+
+
+class _DifficultyInput(_StrictConfigModel):
+    question_family_weights: _QuestionFamilyWeights
+    polygon_count_weights: Annotated[
+        dict[PolygonCount, Anchors],
+        Field(min_length=1),
+    ]
+    scalar_profiles: _ScalarProfiles
+
+
+class _QuestionsInput(_StrictConfigModel):
+    object: dict[str, dict[str, Nonnegative]]
+
+
+class _MorphismsInput(_StrictConfigModel):
+    families: dict[str, Anchors]
+    affinity: dict[str, dict[str, Nonnegative]]
+
+    @model_validator(mode="after")
+    def _has_every_family(self) -> Self:
+        expected = {
             "full-disk-boundary",
             "attachment",
             "partial-intercomponent",
             "self-boundary",
             "annulus-closure",
         }
-        if set(self.morphism_family_weights) != expected_families:
+        if set(self.families) != expected:
             raise ValueError("generation profile must configure every morphism family")
+        return self
+
+
+class _GenerationInput(_StrictConfigModel):
+    profile_version: Annotated[str, Field(min_length=1)]
+    noise_probability: Probability
+    retry_limit: Annotated[int, Field(ge=1)]
+    difficulty: _DifficultyInput
+    questions: _QuestionsInput
+    morphisms: _MorphismsInput
+
+
+class _GenerationDocument(_StrictConfigModel):
+    generation: _GenerationInput
 
 
 def load_generation_config(override_path: str | Path | None = None) -> SurfaceGenerationConfig:
@@ -82,78 +119,47 @@ def load_generation_config(override_path: str | Path | None = None) -> SurfaceGe
     merged = _read_yaml(default_path)
     if override_path is not None:
         merged = _deep_merge(merged, _read_yaml(Path(override_path)))
-    root = _section(merged, "generation")
-    difficulty = _section(root, "difficulty")
-    question_weights = _section(difficulty, "question_family_weights")
-    polygon_counts = _section(difficulty, "polygon_count_weights")
-    scalar = _section(difficulty, "scalar_profiles")
-    questions = _section(root, "questions")
-    morphisms = _section(root, "morphisms")
+    source = _GenerationDocument.model_validate(merged).generation
+    question_weights = source.difficulty.question_family_weights
+    scalar = source.difficulty.scalar_profiles
     return SurfaceGenerationConfig(
-        _string(root, "profile_version"),
-        _number(root, "noise_probability"),
-        _integer(root, "retry_limit"),
-        DifficultyProfile(
-            _anchors(question_weights, "global"),
-            _anchors(question_weights, "classification"),
-            _anchors(question_weights, "path"),
-            {
-                int(key): _anchors_value(value, f"polygon_count_weights.{key}")
-                for key, value in polygon_counts.items()
+        profile_version=source.profile_version,
+        noise_probability=source.noise_probability,
+        retry_limit=source.retry_limit,
+        difficulty=DifficultyProfile(
+            global_question_weight=_anchored(question_weights.global_),
+            classification_question_weight=_anchored(question_weights.classification),
+            path_question_weight=_anchored(question_weights.path),
+            polygon_count_weights={
+                count: _anchored(anchors)
+                for count, anchors in source.difficulty.polygon_count_weights.items()
             },
-            _anchors(scalar, "side_continuation"),
-            _anchors(scalar, "gluing_density"),
-            _anchors(scalar, "path_continuation"),
-            _anchors(scalar, "path_maximum"),
-            _anchors(scalar, "visual_budget"),
+            side_continuation=_anchored(scalar.side_continuation),
+            gluing_density=_anchored(scalar.gluing_density),
+            path_continuation=_anchored(scalar.path_continuation),
+            path_maximum=_anchored(scalar.path_maximum),
+            visual_budget=_anchored(scalar.visual_budget),
         ),
-        _question_groups(_section(questions, "object")),
-        {
-            key: _anchors_value(value, f"morphisms.families.{key}")
-            for key, value in _section(morphisms, "families").items()
+        object_questions={
+            group: tuple(weights.items()) for group, weights in source.questions.object.items()
         },
-        {
-            question: {
-                family: _number_value(weight, f"morphisms.affinity.{question}.{family}")
-                for family, weight in _mapping(value, question).items()
-            }
-            for question, value in _section(morphisms, "affinity").items()
+        morphism_family_weights={
+            family: _anchored(anchors) for family, anchors in source.morphisms.families.items()
         },
+        morphism_affinity=source.morphisms.affinity,
     )
 
 
-def _question_groups(mapping: ConfigMap) -> dict[str, tuple[tuple[str, float], ...]]:
-    return {
-        group: tuple(
-            (kind, _number_value(weight, f"questions.{group}.{kind}"))
-            for kind, weight in _mapping(value, group).items()
-        )
-        for group, value in mapping.items()
-    }
-
-
-def _anchors(mapping: ConfigMap, key: str) -> AnchoredValue:
-    if key not in mapping:
-        raise ValueError(f"missing generation profile: {key}")
-    return _anchors_value(mapping[key], key)
-
-
-def _anchors_value(value: object, name: str) -> AnchoredValue:
-    mapping = _mapping(value, name)
-    points = tuple(
-        sorted(
-            (int(level), _number_value(weight, f"{name}.{level}"))
-            for level, weight in mapping.items()
-        )
-    )
-    if not points or any(not 1 <= level <= 10 for level, _ in points):
-        raise ValueError(f"{name} needs anchors between difficulties 1 and 10")
-    return AnchoredValue(points)
+def _anchored(values: Mapping[int, float]) -> AnchoredValue:
+    return AnchoredValue(anchors=tuple(sorted(values.items())))
 
 
 def _read_yaml(path: Path) -> ConfigMap:
     with path.open(encoding="utf-8") as stream:
-        return _mapping(cast(object, yaml.safe_load(stream)), str(path))
+        value = cast(object, yaml.safe_load(stream))
+    if not isinstance(value, dict) or not all(isinstance(key, str) for key in value):
+        raise ValueError(f"{path} must be a YAML mapping with string keys")
+    return cast(ConfigMap, value)
 
 
 def _deep_merge(base: ConfigMap, override: ConfigMap) -> ConfigMap:
@@ -165,44 +171,3 @@ def _deep_merge(base: ConfigMap, override: ConfigMap) -> ConfigMap:
         else:
             result[key] = value
     return result
-
-
-def _mapping(value: object, name: str) -> ConfigMap:
-    if not isinstance(value, dict) or not all(isinstance(key, str | int) for key in value):
-        raise ValueError(f"{name} must be a YAML mapping")
-    return {str(key): item for key, item in value.items()}
-
-
-def _section(mapping: ConfigMap, key: str) -> ConfigMap:
-    if key not in mapping:
-        raise ValueError(f"missing generation configuration section: {key}")
-    return _mapping(mapping[key], key)
-
-
-def _number(mapping: ConfigMap, key: str) -> float:
-    return _number_value(mapping.get(key), key)
-
-
-def _number_value(value: object, key: str) -> float:
-    if (
-        isinstance(value, bool)
-        or not isinstance(value, int | float)
-        or not math.isfinite(value)
-        or value < 0
-    ):
-        raise ValueError(f"{key} must be a nonnegative number")
-    return float(value)
-
-
-def _integer(mapping: ConfigMap, key: str) -> int:
-    value = mapping.get(key)
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise ValueError(f"{key} must be an integer")
-    return value
-
-
-def _string(mapping: ConfigMap, key: str) -> str:
-    value = mapping.get(key)
-    if not isinstance(value, str) or not value:
-        raise ValueError(f"{key} must be a nonempty string")
-    return value

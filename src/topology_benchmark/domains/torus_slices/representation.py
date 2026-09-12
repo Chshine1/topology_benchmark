@@ -1,5 +1,3 @@
-"""Aligned SVG panels showing only parallel sections of a hidden torus family."""
-
 import io
 import math
 from random import Random
@@ -8,7 +6,8 @@ from matplotlib import rc_context
 from matplotlib.backends.backend_svg import FigureCanvasSVG
 from matplotlib.figure import Figure
 
-from topology_benchmark.core.models import GenerationRequest, PromptData
+from topology_benchmark.core.models import GenerationRequest, QuestionSection
+from topology_benchmark.core.protocols import Representation
 from topology_benchmark.domains.torus_slices.models import (
     TorusSliceObservation,
     Vector3,
@@ -19,12 +18,12 @@ from topology_benchmark.domains.torus_slices.models import (
 )
 
 
-class TorusSliceSvgRenderer:
+class TorusSliceSvgRenderer(Representation[TorusSliceObservation]):
     """Render implicit plane intersections without exposing core-circle parameters."""
 
     def render(
         self, obj: TorusSliceObservation, request: GenerationRequest, rng: Random
-    ) -> PromptData:
+    ) -> QuestionSection:
         del rng
         columns = 3
         rows = math.ceil(len(obj.levels) / columns)
@@ -87,18 +86,9 @@ class TorusSliceSvgRenderer:
         output = io.StringIO()
         with rc_context({"svg.hashsalt": f"torus-slices:{request.seed}"}):
             canvas.print_svg(output, metadata={"Date": None, "Creator": "topology_benchmark"})
-        return PromptData(
+        return QuestionSection(
             "image/svg+xml",
             output.getvalue(),
-            {
-                "representation": "aligned-torus-level-sections",
-                "level_count": len(obj.levels),
-                "common_scale": True,
-                "core_circles_shown": False,
-                "core_curves_shown": False,
-                "equations_shown": False,
-                "seeded_renderer": True,
-            },
         )
 
     @staticmethod
@@ -110,15 +100,15 @@ class TorusSliceSvgRenderer:
             major, minor = torus.core.basis()
             x_extent = (
                 math.hypot(
-                    torus.core.semi_major * dot(major, first),
-                    torus.core.semi_minor * dot(minor, first),
+                    torus.core.radius * dot(major, first),
+                    torus.core.radius * dot(minor, first),
                 )
                 + torus.clearance_radius
             )
             y_extent = (
                 math.hypot(
-                    torus.core.semi_major * dot(major, second),
-                    torus.core.semi_minor * dot(minor, second),
+                    torus.core.radius * dot(major, second),
+                    torus.core.radius * dot(minor, second),
                 )
                 + torus.clearance_radius
             )

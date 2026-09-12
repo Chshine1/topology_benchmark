@@ -40,9 +40,11 @@ provider:
     assert len(public) == len(private) == 2
     assert "answer" not in public[0]
     assert "generator_seed" not in public[0]
-    assert "answer" in private[0]
+    assert set(private[0]) == {"id", "answer", "generator_seed", "question_kind"}
     assert (output / public[0]["media"][0]["path"]).exists()
     assert (output / "summary.json").exists()
+    manifest = json.loads((output / "manifest.private.json").read_text())
+    assert "generator_profiles" not in manifest
 
 
 def test_answer_extraction_and_typed_scoring() -> None:

@@ -1,35 +1,41 @@
-"""Composable, reproducible probability primitives for generation pipelines."""
-
 import hashlib
-import json
-import math
-from dataclasses import dataclass
 from itertools import pairwise
 from random import Random
 from typing import Protocol
+
+from attrs import field, frozen
+
+from topology_benchmark.core.validation import any_member, number_range
 
 
 class Distribution[T](Protocol):
     def sample(self, rng: Random) -> T: ...
 
 
-@dataclass(frozen=True, slots=True)
+@frozen
 class WeightedValue[T]:
     value: T
-    weight: float
+    weight: float = field(
+        validator=number_range(
+            minimum=0.0,
+            finite=True,
+            message="distribution weights must be finite and nonnegative",
+        )
+    )
 
-    def __post_init__(self) -> None:
-        if not math.isfinite(self.weight) or self.weight < 0:
-            raise ValueError("distribution weights must be finite and nonnegative")
+
+def _has_positive_weight[T](item: WeightedValue[T]) -> bool:
+    return item.weight > 0
 
 
-@dataclass(frozen=True, slots=True)
-class FiniteDistribution[T]:
-    values: tuple[WeightedValue[T], ...]
-
-    def __post_init__(self) -> None:
-        if not self.values or not any(item.weight > 0 for item in self.values):
-            raise ValueError("a finite distribution needs positive total weight")
+@frozen
+class FiniteDistribution[T](Distribution[T]):
+    values: tuple[WeightedValue[T], ...] = field(
+        validator=any_member(
+            _has_positive_weight,
+            message="a finite distribution needs positive total weight",
+        )
+    )
 
     def sample(self, rng: Random) -> T:
         threshold = rng.random() * sum(item.weight for item in self.values)
@@ -41,29 +47,40 @@ class FiniteDistribution[T]:
         return self.values[-1].value
 
 
-@dataclass(frozen=True, slots=True)
-class BernoulliDistribution:
-    probability: float
-
-    def __post_init__(self) -> None:
-        if not 0 <= self.probability <= 1:
-            raise ValueError("a probability must lie between zero and one")
+@frozen
+class BernoulliDistribution(Distribution[bool]):
+    probability: float = field(
+        validator=number_range(
+            minimum=0.0,
+            maximum=1.0,
+            message="a probability must lie between zero and one",
+        )
+    )
 
     def sample(self, rng: Random) -> bool:
         return rng.random() < self.probability
 
 
-@dataclass(frozen=True, slots=True)
-class TruncatedGeometricDistribution:
-    minimum: int
+@frozen
+class TruncatedGeometricDistribution(Distribution[int]):
+    minimum: int = field(
+        validator=number_range(
+            minimum=0,
+            message="invalid truncated geometric bounds",
+        )
+    )
     maximum: int
-    continuation_probability: float
+    continuation_probability: float = field(
+        validator=number_range(
+            minimum=0.0,
+            maximum=1.0,
+            message="a continuation probability must lie between zero and one",
+        )
+    )
 
-    def __post_init__(self) -> None:
-        if self.minimum < 0 or self.maximum < self.minimum:
+    def __attrs_post_init__(self) -> None:
+        if self.maximum < self.minimum:
             raise ValueError("invalid truncated geometric bounds")
-        if not 0 <= self.continuation_probability <= 1:
-            raise ValueError("a continuation probability must lie between zero and one")
 
     def sample(self, rng: Random) -> int:
         value = self.minimum
@@ -72,46 +89,20 @@ class TruncatedGeometricDistribution:
         return value
 
 
-@dataclass(frozen=True, slots=True)
-class SamplingEvent:
-    name: str
-    value: str
-    noise: bool = False
-
-
 class SamplingSession:
-    """Named random streams stable against unrelated pipeline changes."""
+    """Each namespace gets an independent RNG derived from the profile and seed."""
 
     def __init__(self, seed: int, profile_version: str) -> None:
         self.seed = seed
         self.profile_version = profile_version
-        self._events: list[SamplingEvent] = []
 
     def rng(self, namespace: str) -> Random:
         material = f"{self.profile_version}\0{self.seed}\0{namespace}".encode()
         digest = hashlib.blake2b(material, digest_size=16).digest()
         return Random(int.from_bytes(digest, "big"))
 
-    def sample[T](self, namespace: str, distribution: Distribution[T], *, noise: bool = False) -> T:
-        value = distribution.sample(self.rng(namespace))
-        self._events.append(SamplingEvent(namespace, _trace_value(value), noise and bool(value)))
-        return value
-
-    def note(self, namespace: str, value: object, *, noise: bool = False) -> None:
-        self._events.append(SamplingEvent(namespace, _trace_value(value), noise))
-
-    @property
-    def events(self) -> tuple[SamplingEvent, ...]:
-        return tuple(self._events)
-
-    def trace_json(self) -> str:
-        return json.dumps(
-            [
-                {"name": event.name, "value": event.value, "noise": event.noise}
-                for event in self._events
-            ],
-            separators=(",", ":"),
-        )
+    def sample[T](self, namespace: str, distribution: Distribution[T]) -> T:
+        return distribution.sample(self.rng(namespace))
 
 
 def interpolate_anchors(anchors: tuple[tuple[int, float], ...], difficulty: int) -> float:
@@ -133,8 +124,3 @@ def blended_weight(aligned: float, baseline: float, noise_probability: float) ->
     if min(aligned, baseline) < 0 or not 0 <= noise_probability <= 1:
         raise ValueError("weights must be nonnegative and noise must be a probability")
     return (1 - noise_probability) * aligned + noise_probability * baseline
-
-
-def _trace_value(value: object) -> str:
-    raw = getattr(value, "value", value)
-    return str(raw)

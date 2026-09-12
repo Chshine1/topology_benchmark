@@ -1,38 +1,33 @@
-"""Metric-combinatorial models for genuine three-dimensional polyhedra and nets."""
-
 import math
 from dataclasses import dataclass
 from fractions import Fraction
+
+from attrs import field, frozen, validators
+
+from topology_benchmark.core.validation import nonblank, number_range
 
 type Point2 = tuple[float, float]
 type Point3 = tuple[Fraction, Fraction, Fraction]
 type EdgeMetric = Fraction | float
 
 
-@dataclass(frozen=True, slots=True)
+@frozen
 class RegularFace:
     """Legacy regular face; retained for callers constructing abstract nets."""
 
-    name: str
-    sides: int
-    side_length: int = 1
-
-    def __post_init__(self) -> None:
-        if not self.name.strip():
-            raise ValueError("a face name cannot be empty")
-        if self.sides < 3:
-            raise ValueError("a face needs at least three sides")
-        if self.side_length <= 0:
-            raise ValueError("a side length must be positive")
-
-    @property
-    def interior_angle_degrees(self) -> Fraction:
-        return Fraction(180 * (self.sides - 2), self.sides)
+    name: str = field(validator=nonblank("a face name cannot be empty"))
+    sides: int = field(
+        validator=number_range(minimum=3, message="a face needs at least three sides")
+    )
+    side_length: int = field(
+        default=1,
+        validator=number_range(minimum_exclusive=0, message="a side length must be positive"),
+    )
 
     def corner_angle_degrees(self, corner: int) -> Fraction:
         if not 0 <= corner < self.sides:
             raise ValueError("corner is outside the face")
-        return self.interior_angle_degrees
+        return Fraction(180 * (self.sides - 2), self.sides)
 
     def edge_metric(self, edge: int) -> Fraction:
         if not 0 <= edge < self.sides:
@@ -40,20 +35,29 @@ class RegularFace:
         return Fraction(self.side_length * self.side_length)
 
 
-@dataclass(frozen=True, slots=True)
+@frozen
 class PolygonFace:
-    """A possibly irregular rigid face placed in an unfolded development."""
+    """Geometry arrays share boundary index ``i``.
 
-    name: str
-    points: tuple[Point2, ...]
-    edge_squared_lengths: tuple[Fraction, ...]
+    ``points``, ``corner_angles``, and ``source_vertices`` describe corner ``i``;
+    ``edge_squared_lengths[i]`` describes its side to corner ``(i + 1) % sides``.
+    """
+
+    name: str = field(validator=nonblank("a polygon face needs a name"))
+    points: tuple[Point2, ...] = field(validator=validators.min_len(3))
+    edge_squared_lengths: tuple[Fraction, ...] = field(
+        validator=validators.deep_iterable(
+            member_validator=number_range(
+                minimum_exclusive=0,
+                message="face edges must have positive length",
+            )
+        )
+    )
     corner_angles: tuple[float, ...]
     source_vertices: tuple[int, ...]
 
-    def __post_init__(self) -> None:
+    def __attrs_post_init__(self) -> None:
         size = len(self.points)
-        if not self.name.strip() or size < 3:
-            raise ValueError("a polygon face needs a name and at least three points")
         if not (
             len(self.edge_squared_lengths)
             == len(self.corner_angles)
@@ -61,8 +65,6 @@ class PolygonFace:
             == size
         ):
             raise ValueError("face geometry arrays must have the same length")
-        if any(length <= 0 for length in self.edge_squared_lengths):
-            raise ValueError("face edges must have positive length")
 
     @property
     def sides(self) -> int:
@@ -80,26 +82,28 @@ type NetFace = RegularFace | PolygonFace
 
 @dataclass(frozen=True, slots=True, order=True)
 class NetEdge:
+    """Side ``edge`` of ``faces[face]``, from that corner to the next; indices are zero-based."""
+
     face: int
     edge: int
 
 
 @dataclass(frozen=True, slots=True, order=True)
 class FaceCorner:
-    """The corner at the start of a face edge in boundary order."""
+    """Corner ``corner`` of ``PolyhedralNet.faces[face]``; both indices are zero-based."""
 
     face: int
     corner: int
 
 
-@dataclass(frozen=True, slots=True)
+@frozen
 class EdgePair:
-    """Two oppositely oriented face edges representing one folded edge."""
+    """Two sides identified start-to-end as one folded edge."""
 
     first: NetEdge
     second: NetEdge
 
-    def __post_init__(self) -> None:
+    def __attrs_post_init__(self) -> None:
         if self.first == self.second:
             raise ValueError("an edge cannot be paired with itself")
 
@@ -108,15 +112,15 @@ class EdgePair:
         return frozenset((self.first, self.second))
 
 
-@dataclass(frozen=True, slots=True)
+@frozen
 class Polyhedron3D:
-    """A closed convex source polyhedron with exact rational coordinates."""
+    """Each face is an outward-oriented cycle of indices into ``vertices``."""
 
     name: str
     vertices: tuple[Point3, ...]
     faces: tuple[tuple[int, ...], ...]
 
-    def __post_init__(self) -> None:
+    def __attrs_post_init__(self) -> None:
         if not self.name.strip() or len(self.vertices) < 4 or len(self.faces) < 4:
             raise ValueError("a source polyhedron needs vertices and faces")
         for face in self.faces:
@@ -128,7 +132,7 @@ class Polyhedron3D:
 
 @dataclass(frozen=True, slots=True)
 class PolyhedralNet:
-    """A connected planar tree of rigid faces, with closing seams unspecified."""
+    """``hinges`` form the uncut face-spanning tree; other sides are boundary edges."""
 
     name: str
     faces: tuple[NetFace, ...]
@@ -239,16 +243,16 @@ class PolyhedralNet:
             raise ValueError("only cut boundary edges have displayed labels") from error
 
 
-@dataclass(frozen=True, slots=True)
+@frozen
 class PolyhedralFolding:
-    """Ground-truth closure and source data kept outside the observed net."""
+    """Adds the hidden closing seams and optional 3D source to an observed net."""
 
     net: PolyhedralNet
     seams: tuple[EdgePair, ...]
     source: Polyhedron3D | None = None
     root_face: int = 0
 
-    def __post_init__(self) -> None:
+    def __attrs_post_init__(self) -> None:
         used = {edge for pair in self.net.hinges for edge in (pair.first, pair.second)}
         for pair in self.seams:
             for edge in (pair.first, pair.second):

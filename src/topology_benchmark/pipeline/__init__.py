@@ -1,5 +1,3 @@
-"""Dynamic, reproducible benchmark generation and evaluation."""
-
 from topology_benchmark.pipeline.config import PipelineConfig, load_pipeline_config
 from topology_benchmark.pipeline.runner import BenchmarkPipeline
 

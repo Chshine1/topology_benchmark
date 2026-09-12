@@ -1,35 +1,34 @@
-"""Immutable values exchanged by framework components."""
+from dataclasses import dataclass
 
-from dataclasses import dataclass, field
+from attrs import field as attrs_field
+from attrs import frozen
+
+from topology_benchmark.core.validation import number_range
 
 
 @dataclass(frozen=True, slots=True)
-class PromptData:
-    """A model-ready representation of a mathematical object."""
-
+class QuestionSection:
     media_type: str
     content: str
-    metadata: dict[str, str | int | bool] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
 class Problem[AnswerT]:
-    """A generated question together with its reproducible ground truth."""
-
     question: str
-    prompts: tuple[PromptData, ...]
+    sections: tuple[QuestionSection, ...]
     answer: AnswerT
     seed: int
-    metadata: dict[str, str | int | bool] = field(default_factory=dict)
+    question_kind: str
 
 
-@dataclass(frozen=True, slots=True)
+@frozen
 class GenerationRequest:
-    """Cross-domain controls understood by the application layer."""
-
     seed: int
-    difficulty: int = 1
-
-    def __post_init__(self) -> None:
-        if not 1 <= self.difficulty <= 10:
-            raise ValueError("difficulty must be between 1 and 10")
+    difficulty: int = attrs_field(
+        default=1,
+        validator=number_range(
+            minimum=1,
+            maximum=10,
+            message="difficulty must be between 1 and 10",
+        ),
+    )

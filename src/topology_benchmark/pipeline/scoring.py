@@ -1,5 +1,3 @@
-"""Deterministic extraction and grading for current answer types."""
-
 import re
 from typing import Any
 

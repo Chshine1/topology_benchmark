@@ -1,90 +1,80 @@
-from dataclasses import dataclass
+from attrs import field, frozen
 
+from topology_benchmark.core.validation import nonblank, nonempty, number_range
 from topology_benchmark.utils import DisjointSet
 
 
-@dataclass(frozen=True, slots=True)
+@frozen
 class Polygon:
-    """A topological disc with cyclically ordered sides."""
-
     name: str
-    sides: int
+    sides: int = field(
+        validator=number_range(
+            minimum=3,
+            message="a polygon needs at least three edges",
+        )
+    )
 
-    def __post_init__(self) -> None:
-        if self.sides < 3:
-            raise ValueError("a polygon needs at least three edges")
 
-
-@dataclass(frozen=True, slots=True, order=True)
+@frozen(order=True)
 class EdgeRef:
+    """Side ``edge`` of ``SurfacePresentation.polygons[polygon]``.
+
+    Both indices are zero-based. Side ``i`` runs from vertex ``i`` to vertex
+    ``(i + 1) % sides``.
+    """
+
     polygon: int
     edge: int
 
 
-@dataclass(frozen=True, slots=True)
+@frozen
 class OrientedEdge:
-    """A polygon side traversed in (or against) its boundary orientation."""
+    """A side traversal; ``forward`` selects ``i -> i + 1`` or its reverse."""
 
     edge: EdgeRef
     forward: bool = True
 
 
-@dataclass(frozen=True, slots=True)
+@frozen
 class EdgeGluing:
-    """Identification of two complete sides.
+    """Identification of two sides.
 
-    ``same_direction`` maps native start to native start. False maps native
-    start to native end. The label is display notation, not mathematical ID.
+    ``same_direction`` pairs their two starts and their two ends; otherwise it
+    pairs each start with the other end.
     """
 
     first: EdgeRef
     second: EdgeRef
-    label: str
+
+    label: str = field(validator=nonblank("a gluing label cannot be empty"))
     same_direction: bool = False
 
-    def __post_init__(self) -> None:
+    def __attrs_post_init__(self) -> None:
         if self.first == self.second:
             raise ValueError("an edge cannot be glued to itself")
-        if not self.label.strip():
-            raise ValueError("a gluing label cannot be empty")
 
 
-@dataclass(frozen=True, slots=True)
+@frozen
 class SurfacePath:
-    """A directed edge walk, with adjacency understood in the quotient."""
+    """An edge walk whose consecutive endpoints agree after gluing."""
 
-    name: str
-    edges: tuple[OrientedEdge, ...]
-
-    def __post_init__(self) -> None:
-        if not self.name.strip():
-            raise ValueError("a path name cannot be empty")
-        if not self.edges:
-            raise ValueError("a path needs at least one directed edge")
+    name: str = field(validator=nonblank("a path name cannot be empty"))
+    edges: tuple[OrientedEdge, ...] = field(
+        validator=nonempty("a path needs at least one directed edge")
+    )
 
 
-@dataclass(frozen=True, slots=True, init=False)
+@frozen
 class SurfacePresentation:
-    """All mathematical data needed to specify a polygonal surface quotient."""
+    """Polygons whose paired sides are identified; unpaired sides form the boundary."""
 
-    polygons: tuple[Polygon, ...]
+    polygons: tuple[Polygon, ...] = field(
+        validator=nonempty("a surface presentation needs at least one polygon")
+    )
     gluings: tuple[EdgeGluing, ...]
     paths: tuple[SurfacePath, ...] = ()
 
-    def __init__(
-        self,
-        polygons: tuple[Polygon, ...],
-        gluings: tuple[EdgeGluing, ...],
-        paths: tuple[SurfacePath, ...] = (),
-    ) -> None:
-        object.__setattr__(self, "polygons", polygons)
-        object.__setattr__(self, "gluings", gluings)
-        object.__setattr__(self, "paths", paths)
-        self.__post_init__()
-
-    def __post_init__(self) -> None:
-        if not self.polygons:
-            raise ValueError("a surface presentation needs at least one polygon")
+    def __attrs_post_init__(self) -> None:
         used: set[EdgeRef] = set()
         labels: set[str] = set()
         for gluing in self.gluings:
@@ -114,6 +104,7 @@ class SurfacePresentation:
             raise ValueError("edge references an unknown polygon side")
 
     def vertex_offsets(self) -> tuple[int, ...]:
+        """Return offsets mapping ``(polygon, vertex)`` to one global vertex index."""
         result = [0]
         for polygon in self.polygons:
             result.append(result[-1] + polygon.sides)
@@ -136,6 +127,7 @@ class SurfacePresentation:
     def native_edge_vertices(
         self, edge: EdgeRef, offsets: tuple[int, ...] | None = None
     ) -> tuple[int, int]:
+        """Return the side's start and end as pre-gluing global vertex indices."""
         offsets = offsets or self.vertex_offsets()
         start = offsets[edge.polygon] + edge.edge
         end = offsets[edge.polygon] + ((edge.edge + 1) % self.polygons[edge.polygon].sides)
@@ -157,10 +149,6 @@ class SurfacePresentation:
             for edge in range(polygon.sides)
             if EdgeRef(polygon_index, edge) not in glued
         )
-
-    @property
-    def unmarked_edges(self) -> tuple[EdgeRef, ...]:
-        return self.unglued_edges
 
     @property
     def is_closed(self) -> bool:

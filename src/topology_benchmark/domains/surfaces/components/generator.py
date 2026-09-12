@@ -1,5 +1,3 @@
-"""Intent-aware probabilistic generators of polygon-edge presentations."""
-
 import math
 from random import Random
 
@@ -15,7 +13,6 @@ from topology_benchmark.core.probability import (
 from topology_benchmark.domains.surfaces.analysis import SurfaceAnalyzer
 from topology_benchmark.domains.surfaces.components.generation_config import (
     SurfaceGenerationConfig,
-    load_generation_config,
 )
 from topology_benchmark.domains.surfaces.generation import (
     ProblemSubject,
@@ -38,10 +35,9 @@ from topology_benchmark.domains.surfaces.ports import SurfaceGenerator, SurfaceM
 
 
 class RandomSurfacePresentationGenerator(SurfaceGenerator):
-    """Sample a valid surface using soft weights conditioned on problem intent."""
-
-    def __init__(self, config: SurfaceGenerationConfig | None = None) -> None:
-        self.config = config or load_generation_config()
+    def __init__(self, config: SurfaceGenerationConfig, analyzer: SurfaceAnalyzer) -> None:
+        self.config = config
+        self._analyzer = analyzer
 
     def generate(self, request: GenerationRequest, rng: Random) -> SurfacePresentation:
         sampling = SamplingSession(request.seed, self.config.profile_version)
@@ -79,15 +75,14 @@ class RandomSurfacePresentationGenerator(SurfaceGenerator):
             )
             candidate = SurfacePresentation(polygons, gluings)
             try:
-                SurfaceAnalyzer().analyze(candidate)
+                self._analyzer.analyze(candidate)
             except ValueError:
                 continue
             paths = self._paths(candidate, context)
             completed = SurfacePresentation(polygons, gluings, paths)
             if context.intent.question_kind == "path-representative":
-                analyzer = SurfaceAnalyzer()
-                facts = analyzer.analyze(completed)
-                generators = analyzer.h1_edge_generators(completed)
+                facts = self._analyzer.analyze(completed)
+                generators = self._analyzer.h1_edge_generators(completed)
                 tagged_edges = {
                     edge
                     for coefficients, _ in generators
@@ -98,13 +93,11 @@ class RandomSurfacePresentationGenerator(SurfaceGenerator):
                     len(facts.components) != 1
                     or not 1 <= len(generators) <= 3
                     or len(tagged_edges) > 8
-                    or not any(analyzer.path_homology_coefficients(completed, paths[0]))
+                    or not any(self._analyzer.path_homology_coefficients(completed, paths[0]))
                 ):
                     continue
-            context.sampling.note("surface.relaxed", False)
             return completed
 
-        context.sampling.note("surface.relaxed", True, noise=True)
         if context.intent.question_kind == "path-representative":
             fallback = SurfacePresentation(
                 (Polygon("P", 4),),
@@ -173,14 +166,12 @@ class RandomSurfacePresentationGenerator(SurfaceGenerator):
             incidental = context.sampling.sample(
                 "paths.incidental",
                 BernoulliDistribution(self.config.noise_probability),
-                noise=True,
             )
         extra: bool = False
         if focused and context.intent.question_kind != "path-representative":
             extra = context.sampling.sample(
                 "paths.extra",
                 BernoulliDistribution(self.config.noise_probability),
-                noise=True,
             )
         count = int(focused or incidental) + int(extra)
         paths: list[SurfacePath] = []
@@ -274,10 +265,9 @@ class RandomSurfacePresentationGenerator(SurfaceGenerator):
 
 
 class RandomSurfaceMorphismGenerator(SurfaceMorphismGenerator):
-    """Sample varied instances of the two supported mathematical arrow types."""
-
-    def __init__(self, config: SurfaceGenerationConfig | None = None) -> None:
-        self.config = config or load_generation_config()
+    def __init__(self, config: SurfaceGenerationConfig, analyzer: SurfaceAnalyzer) -> None:
+        self.config = config
+        self._analyzer = analyzer
 
     def generate(self, request: GenerationRequest, rng: Random) -> SurfaceMorphism:
         sampling = SamplingSession(request.seed, self.config.profile_version)
@@ -305,7 +295,6 @@ class RandomSurfaceMorphismGenerator(SurfaceMorphismGenerator):
                 return self._close_annulus(rng)
             except ValueError:
                 continue
-        context.sampling.note("morphism.relaxed", True, noise=True)
         return self._attach_polygon(rng)
 
     def _family(self, context: SurfaceGenerationContext) -> str:
@@ -327,19 +316,17 @@ class RandomSurfaceMorphismGenerator(SurfaceMorphismGenerator):
         continuation = self.config.difficulty.side_continuation.at(request.difficulty)
         return TruncatedGeometricDistribution(3, 8, continuation).sample(rng)
 
-    @staticmethod
-    def _attach_polygon(rng: Random) -> PolygonAttachmentMorphism:
+    def _attach_polygon(self, rng: Random) -> PolygonAttachmentMorphism:
         source_sides, attached_sides = rng.randint(3, 6), rng.randint(3, 6)
         source = SurfacePresentation((Polygon("D", source_sides),), ())
         attachment = EdgeGluing(EdgeRef(0, 1), EdgeRef(1, 0), "a", False)
         target = SurfacePresentation(
             (Polygon("D", source_sides), Polygon("A", attached_sides)), (attachment,)
         )
-        SurfaceAnalyzer().analyze(target)
+        self._analyzer.analyze(target)
         return PolygonAttachmentMorphism(source, target, attachment, 1, "attachment")
 
-    @staticmethod
-    def _glue_two_disks(rng: Random, sides: int) -> BoundaryGluingMorphism:
+    def _glue_two_disks(self, rng: Random, sides: int) -> BoundaryGluingMorphism:
         del rng
         polygons = (Polygon("D1", sides), Polygon("D2", sides))
         source = SurfacePresentation(polygons, ())
@@ -347,10 +334,9 @@ class RandomSurfaceMorphismGenerator(SurfaceMorphismGenerator):
             EdgeGluing(EdgeRef(0, edge), EdgeRef(1, sides - 1 - edge), f"g{edge + 1}", False)
             for edge in range(sides)
         )
-        return RandomSurfaceMorphismGenerator._build(source, identifications, "full-disk-boundary")
+        return self._build(source, identifications, "full-disk-boundary")
 
-    @staticmethod
-    def _partial_intercomponent(rng: Random, difficulty: int) -> BoundaryGluingMorphism:
+    def _partial_intercomponent(self, rng: Random, difficulty: int) -> BoundaryGluingMorphism:
         first_sides, second_sides = rng.randint(3, 7), rng.randint(3, 7)
         source = SurfacePresentation((Polygon("D1", first_sides), Polygon("D2", second_sides)), ())
         maximum = min(first_sides, second_sides) - 1
@@ -359,12 +345,9 @@ class RandomSurfaceMorphismGenerator(SurfaceMorphismGenerator):
             EdgeGluing(EdgeRef(0, edge), EdgeRef(1, count - 1 - edge), f"g{edge + 1}", False)
             for edge in range(count)
         )
-        return RandomSurfaceMorphismGenerator._build(
-            source, identifications, "partial-intercomponent"
-        )
+        return self._build(source, identifications, "partial-intercomponent")
 
-    @staticmethod
-    def _self_boundary(rng: Random, difficulty: int) -> BoundaryGluingMorphism:
+    def _self_boundary(self, rng: Random, difficulty: int) -> BoundaryGluingMorphism:
         sides = rng.randint(4, min(8, 4 + difficulty // 2))
         source = SurfacePresentation((Polygon("D", sides),), ())
         first = rng.randrange(sides)
@@ -373,17 +356,16 @@ class RandomSurfaceMorphismGenerator(SurfaceMorphismGenerator):
         identification = EdgeGluing(
             EdgeRef(0, first), EdgeRef(0, second), "a", rng.choice((True, False))
         )
-        return RandomSurfaceMorphismGenerator._build(source, (identification,), "self-boundary")
+        return self._build(source, (identification,), "self-boundary")
 
-    @staticmethod
-    def _close_annulus(rng: Random) -> BoundaryGluingMorphism:
+    def _close_annulus(self, rng: Random) -> BoundaryGluingMorphism:
         annulus_gluing = EdgeGluing(EdgeRef(0, 0), EdgeRef(0, 2), "a", False)
         source = SurfacePresentation((Polygon("C", 4),), (annulus_gluing,))
         identification = EdgeGluing(EdgeRef(0, 1), EdgeRef(0, 3), "b", rng.choice((True, False)))
-        return RandomSurfaceMorphismGenerator._build(source, (identification,), "annulus-closure")
+        return self._build(source, (identification,), "annulus-closure")
 
-    @staticmethod
     def _build(
+        self,
         source: SurfacePresentation,
         identifications: tuple[EdgeGluing, ...],
         family: str = "boundary-quotient",
@@ -391,6 +373,6 @@ class RandomSurfaceMorphismGenerator(SurfaceMorphismGenerator):
         target = SurfacePresentation(
             source.polygons, (*source.gluings, *identifications), source.paths
         )
-        SurfaceAnalyzer().analyze(source)
-        SurfaceAnalyzer().analyze(target)
+        self._analyzer.analyze(source)
+        self._analyzer.analyze(target)
         return BoundaryGluingMorphism(source, target, identifications, family)

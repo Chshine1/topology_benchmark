@@ -1,10 +1,8 @@
-"""Run orchestration with public/private artifact separation."""
-
 import hashlib
 import json
 import secrets
 from collections import Counter
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from random import Random
@@ -91,7 +89,7 @@ class BenchmarkPipeline:
         for attempt in range(self.config.max_generation_attempts):
             seed = _derive_seed(root_seed, f"item:{index}:{domain}:{attempt}")
             problem = provider.generate(seed=seed, difficulty=level)
-            kind = str(problem.metadata.get("question_kind", ""))
+            kind = problem.question_kind
             observed.add(kind)
             if target_kind is None or kind == target_kind:
                 return problem
@@ -107,13 +105,13 @@ class BenchmarkPipeline:
         private_records = []
         for item in items:
             media = []
-            for index, prompt in enumerate(item.problem.prompts):
-                suffix = _media_suffix(prompt.media_type)
+            for index, section in enumerate(item.problem.sections):
+                suffix = _media_suffix(section.media_type)
                 path = media_dir / f"{item.item_id}-{index}{suffix}"
-                path.write_text(prompt.content, encoding="utf-8")
+                path.write_text(section.content, encoding="utf-8")
                 media.append(
                     {
-                        "media_type": prompt.media_type,
+                        "media_type": section.media_type,
                         "path": path.relative_to(run_dir).as_posix(),
                     }
                 )
@@ -130,7 +128,7 @@ class BenchmarkPipeline:
                     "id": item.item_id,
                     "answer": item.problem.answer,
                     "generator_seed": item.problem.seed,
-                    "generator_metadata": item.problem.metadata,
+                    "question_kind": item.problem.question_kind,
                 }
             )
         _write_jsonl(run_dir / "dataset.public.jsonl", public_records)
@@ -139,20 +137,13 @@ class BenchmarkPipeline:
     def _manifest(
         self, root_seed: int, run_id: str, items: tuple[GeneratedItem, ...]
     ) -> dict[str, Any]:
-        combinations = Counter(
-            (item.domain, str(item.problem.metadata.get("question_kind", "unknown")))
-            for item in items
-        )
-        profiles = sorted(
-            {str(item.problem.metadata.get("generation_profile", "unknown")) for item in items}
-        )
+        combinations = Counter((item.domain, item.problem.question_kind) for item in items)
         return {
             "schema_version": 1,
             "run_id": run_id,
             "created_at": datetime.now(UTC).isoformat(),
             "root_seed": root_seed,
             "size": len(items),
-            "generator_profiles": profiles,
             "realized_distribution": {
                 f"{domain}/{kind}": count for (domain, kind), count in sorted(combinations.items())
             },
@@ -171,13 +162,13 @@ class BenchmarkPipeline:
             error = None
             for _ in range(max_retries + 1):
                 try:
-                    response = provider.answer(item.problem.question, item.problem.prompts)
+                    response = provider.answer(item.problem.question, item.problem.sections)
                     error = None
                     break
                 except Exception as caught:  # A provider failure is an item result, not a lost run.
                     error = f"{type(caught).__name__}: {caught}"
             is_correct = error is None and score_answer(item.problem.answer, response)
-            kind = str(item.problem.metadata.get("question_kind", "unknown"))
+            kind = item.problem.question_kind
             key = f"{item.domain}/{kind}"
             totals[key] += 1
             correct[key] += int(is_correct)
@@ -234,9 +225,9 @@ def _problem_id(index: int, domain: str, problem: Problem[Any]) -> str:
         "position": index,
         "domain": domain,
         "question": problem.question,
-        "prompts": [
-            {"media_type": prompt.media_type, "content": prompt.content}
-            for prompt in problem.prompts
+        "sections": [
+            {"media_type": section.media_type, "content": section.content}
+            for section in problem.sections
         ],
     }
     return _digest(json.dumps(visible, sort_keys=True, separators=(",", ":")))[:20]
@@ -259,7 +250,7 @@ def _jsonable(value: Any) -> Any:
 
 
 def _manifest_config(config: PipelineConfig) -> dict[str, Any]:
-    value = _jsonable(asdict(config))
+    value = _jsonable(config.model_dump())
     provider = value.get("provider")
     if isinstance(provider, dict):
         provider["extra_headers"] = {key: "<redacted>" for key in provider.get("extra_headers", {})}

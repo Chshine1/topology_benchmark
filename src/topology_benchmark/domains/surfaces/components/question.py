@@ -1,5 +1,3 @@
-"""Questions about polygonal surface objects."""
-
 from topology_benchmark.domains.surfaces.analysis import SurfaceAnalyzer
 from topology_benchmark.domains.surfaces.models import SurfacePresentation
 
@@ -17,7 +15,12 @@ def object_questions(surface: SurfacePresentation) -> tuple[str, ...]:
     return tuple(kinds)
 
 
-def formulate_object(surface: SurfacePresentation, kind: str, path_index: int = 0) -> str:
+def formulate_object(
+    analyzer: SurfaceAnalyzer,
+    surface: SurfacePresentation,
+    kind: str,
+    path_index: int = 0,
+) -> str:
     path = surface.paths[path_index] if surface.paths else None
     questions = {
         "euler-characteristic": "What is the Euler characteristic of the glued surface?",
@@ -26,13 +29,14 @@ def formulate_object(surface: SurfacePresentation, kind: str, path_index: int = 
         "orientable": "Is every connected component of the quotient surface orientable?",
         "homology-groups": "Compute H_0, H_1, and H_2 with integer coefficients.",
         "path-is-cycle": f"Does the displayed path {path.name if path else 'p'} define a 1-cycle?",
-        "path-representative": _path_coordinate_question(surface, path_index),
+        "path-representative": _path_coordinate_question(analyzer, surface, path_index),
     }
     return questions[kind]
 
 
-def _path_coordinate_question(surface: SurfacePresentation, path_index: int) -> str:
-    analyzer = SurfaceAnalyzer()
+def _path_coordinate_question(
+    analyzer: SurfaceAnalyzer, surface: SurfacePresentation, path_index: int
+) -> str:
     generators = analyzer.h1_edge_generators(surface)
     used_edges = sorted(
         edge

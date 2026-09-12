@@ -1,1 +1,0 @@
-"""Concrete surface-domain adapters."""

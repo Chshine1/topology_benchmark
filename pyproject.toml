@@ -1,6 +1,6 @@
 [project]
 authors = [{name = "Chshine1", email = "chshine@qq.com"}]
-dependencies = ["lagom>=2.7.7,<3", "matplotlib>=3.11.1,<4", "pyyaml>=6.0.2,<7"]
+dependencies = ["lagom>=2.7.7,<3", "matplotlib>=3.11.1,<4", "pyyaml>=6.0.2,<7", "attrs>=26.1.0,<27", "pydantic>=2.13.0,<3"]
 name = "topology_benchmark"
 requires-python = ">= 3.14"
 version = "0.1.0"
@@ -38,7 +38,6 @@ check = { depends-on = ["typecheck", "lint", "format-check"] }
 pixi-pycharm = ">=0.0.12,<0.0.13"
 
 [tool.pixi.dependencies]
-pixi-pycharm = "*"
 matplotlib = ">=3.11.1,<4"
 
 [tool.pyrefly]
