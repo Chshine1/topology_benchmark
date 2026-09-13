@@ -1,13 +1,13 @@
 import io
 import math
 from random import Random
+from typing import override
 
 from matplotlib import rc_context
 from matplotlib.backends.backend_svg import FigureCanvasSVG
 from matplotlib.figure import Figure
 
 from topology_benchmark.core.models import GenerationRequest, QuestionSection
-from topology_benchmark.core.protocols import Representation
 from topology_benchmark.domains.torus_slices.models import (
     TorusSliceObservation,
     Vector3,
@@ -16,11 +16,13 @@ from topology_benchmark.domains.torus_slices.models import (
     dot,
     scale,
 )
+from topology_benchmark.domains.torus_slices.ports import TorusSliceRepresentation
 
 
-class TorusSliceSvgRenderer(Representation[TorusSliceObservation]):
+class TorusSliceSvgRenderer(TorusSliceRepresentation):
     """Render implicit plane intersections without exposing core-circle parameters."""
 
+    @override
     def render(
         self, obj: TorusSliceObservation, request: GenerationRequest, rng: Random
     ) -> QuestionSection:

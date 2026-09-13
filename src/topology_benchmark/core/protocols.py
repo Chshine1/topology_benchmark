@@ -1,10 +1,12 @@
 from random import Random
-from typing import Any, Protocol, TypeVar
+from typing import Protocol, TypeVar
 
 from topology_benchmark.core.models import GenerationRequest, Problem, QuestionSection
+from topology_benchmark.core.recipes import QuestionDistribution
 
 ObjectT = TypeVar("ObjectT")
 ContextT = TypeVar("ContextT")
+AnswerT = TypeVar("AnswerT")
 
 
 class ObjectGenerator(Protocol[ObjectT]):
@@ -19,5 +21,19 @@ class Representation(Protocol[ObjectT]):
     def render(self, obj: ObjectT, request: GenerationRequest, rng: Random) -> QuestionSection: ...
 
 
-class ProblemProvider(Protocol):
-    def generate(self, *, seed: int, difficulty: int = 1) -> Problem[Any]: ...
+class ProblemRecipe[AnswerT](Protocol):
+    """A registered, independently selectable problem-producing capability."""
+
+    @property
+    def id(self) -> str: ...
+
+    def generate(self, request: GenerationRequest) -> Problem[AnswerT]: ...
+
+
+class ProblemProvider[QuestionT, AnswerT](Protocol):
+    def generate(
+        self,
+        *,
+        request: GenerationRequest,
+        distribution: QuestionDistribution[QuestionT],
+    ) -> Problem[AnswerT]: ...

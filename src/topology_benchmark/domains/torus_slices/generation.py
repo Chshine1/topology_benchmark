@@ -1,8 +1,10 @@
 import math
+from dataclasses import dataclass
 from random import Random
+from typing import Literal, override
 
+from topology_benchmark.core.errors import GenerationExhaustedError
 from topology_benchmark.core.models import GenerationRequest
-from topology_benchmark.core.protocols import ObjectGenerator
 from topology_benchmark.domains.torus_slices.analysis import TorusFamilyAnalyzer
 from topology_benchmark.domains.torus_slices.models import (
     EllipticTorus,
@@ -16,32 +18,38 @@ from topology_benchmark.domains.torus_slices.models import (
     scale,
     unit,
 )
+from topology_benchmark.domains.torus_slices.ports import TorusSliceGenerator
 
 
-class RandomTorusSliceGenerator(ObjectGenerator[TorusSliceObservation]):
+@dataclass(frozen=True, slots=True)
+class TorusGenerationSpec:
+    count: int
+    linked: bool
+    link_pattern: Literal["pairs", "chain", "complete"]
+
+    def __post_init__(self) -> None:
+        if not 1 <= self.count <= 4:
+            raise ValueError("generated families support one through four tori")
+        if self.linked and self.count < 2:
+            raise ValueError("a linked family needs at least two tori")
+
+
+class RandomTorusSliceGenerator(TorusSliceGenerator):
     def __init__(self, analyzer: TorusFamilyAnalyzer) -> None:
         self._analyzer = analyzer
 
+    @override
     def generate(
         self,
         request: GenerationRequest,
         rng: Random,
-        *,
-        count: int | None = None,
-        linked: bool | None = None,
-        link_pattern: str | None = None,
+        spec: TorusGenerationSpec,
     ) -> TorusSliceObservation:
-        if count is None:
-            maximum = 2 if request.difficulty <= 3 else 3 if request.difficulty <= 7 else 4
-            count = rng.randint(1, maximum)
-        if not 1 <= count <= 4:
-            raise ValueError("generated families support one through four tori")
-        linked = count >= 2 and (rng.random() < 0.58 if linked is None else linked)
+        count = spec.count
+        linked = spec.linked
         major = rng.uniform(1.65, 2.15)
         tube = rng.uniform(0.16, 0.23)
-        if link_pattern not in (None, "pairs", "chain", "complete"):
-            raise ValueError("link pattern must be 'pairs', 'chain', or 'complete'")
-        pattern = link_pattern or "pairs"
+        pattern = spec.link_pattern
         if linked:
             if pattern == "complete":
                 cores = self._complete_hopf_link(count, major, rng)
@@ -183,7 +191,9 @@ class RandomTorusSliceGenerator(ObjectGenerator[TorusSliceObservation]):
                 self._analyzer.certify_disjoint(family)
             ):
                 return family
-        raise RuntimeError("could not certify a disjoint elliptic realization of the link")
+        raise GenerationExhaustedError(
+            "torus-slices", "certify a disjoint elliptic realization of the link", 32
+        )
 
     @staticmethod
     def _unlink(count: int, radius: float) -> tuple[RoundCircle, ...]:

@@ -1,37 +1,37 @@
 import html
 import json
-from collections.abc import Mapping
 from dataclasses import asdict
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from typing import override
 from urllib.parse import parse_qs, urlparse
 
-from topology_benchmark.core.protocols import ProblemProvider
+from topology_benchmark.application.catalog import BenchmarkCatalog
+from topology_benchmark.application.errors import BenchmarkApplicationError
+from topology_benchmark.core.errors import GenerationError
+from topology_benchmark.core.models import GenerationRequest
 
 
 class DemoApplication:
     def __init__(
         self,
-        providers: Mapping[str, ProblemProvider],
+        catalog: BenchmarkCatalog,
         default_domain: str,
     ) -> None:
-        self._providers = dict(providers)
-        if default_domain not in self._providers:
-            raise ValueError("default demo domain is not registered")
+        self._catalog = catalog
+        self._catalog.validate_domain(default_domain)
         self.default_domain = default_domain
 
     @property
     def domains(self) -> tuple[str, ...]:
-        return tuple(self._providers)
+        return self._catalog.domains
 
-    def problem_json(self, *, seed: int, difficulty: int, domain: str | None = None) -> bytes:
+    def problem_json(self, *, request: GenerationRequest, domain: str | None = None) -> bytes:
         selected = domain or self.default_domain
-        try:
-            provider = self._providers[selected]
-        except KeyError as error:
-            choices = ", ".join(self.domains)
-            raise ValueError(f"unknown domain {selected!r}; choose one of: {choices}") from error
-        problem = provider.generate(seed=seed, difficulty=difficulty)
+        problem = self._catalog.generate(
+            domain=selected,
+            request=request,
+        )
         return json.dumps(asdict(problem), ensure_ascii=False).encode()
 
     @staticmethod
@@ -50,13 +50,13 @@ class DemoApplication:
 
 def serve_demo(
     *,
-    providers: Mapping[str, ProblemProvider],
+    catalog: BenchmarkCatalog,
     default_domain: str,
     host: str = "127.0.0.1",
     port: int = 8000,
 ) -> None:
     application = DemoApplication(
-        providers,
+        catalog,
         default_domain,
     )
 
@@ -78,15 +78,25 @@ def serve_demo(
                     query = parse_qs(parsed.query)
                     seed = int(query.get("seed", ["0"])[0])
                     difficulty = int(query.get("difficulty", ["5"])[0])
-                    domain = query.get("domain", [application.default_domain])[0]
+                    request = GenerationRequest(seed=seed, difficulty=difficulty)
+                except (TypeError, ValueError) as error:
+                    self._send_error(HTTPStatus.BAD_REQUEST, str(error))
+                    return
+                domain = query.get("domain", [application.default_domain])[0]
+                try:
                     body = application.problem_json(
-                        seed=seed,
-                        difficulty=difficulty,
+                        request=request,
                         domain=domain,
                     )
-                except (TypeError, ValueError) as error:
-                    body = json.dumps({"error": str(error)}).encode()
-                    self._send(HTTPStatus.BAD_REQUEST, "application/json", body)
+                except BenchmarkApplicationError as error:
+                    self._send_error(HTTPStatus.BAD_REQUEST, str(error))
+                    return
+                except GenerationError as error:
+                    self._send_error(HTTPStatus.SERVICE_UNAVAILABLE, str(error))
+                    return
+                except Exception as error:
+                    self.log_error("problem generation failed: %s: %s", type(error).__name__, error)
+                    self._send_error(HTTPStatus.INTERNAL_SERVER_ERROR, "internal server error")
                     return
                 self._send(HTTPStatus.OK, "application/json; charset=utf-8", body)
                 return
@@ -100,6 +110,14 @@ def serve_demo(
             self.end_headers()
             self.wfile.write(body)
 
+        def _send_error(self, status: HTTPStatus, message: str) -> None:
+            self._send(
+                status,
+                "application/json; charset=utf-8",
+                json.dumps({"error": message}).encode(),
+            )
+
+        @override
         def log_message(self, format: str, *args: object) -> None:
             del format, args
 

@@ -1,9 +1,11 @@
 from collections import Counter
 from pathlib import Path
+from random import Random
 
 import pytest
 
-from topology_benchmark import SurfaceBenchmark, build_container
+from topology_benchmark import build_container
+from topology_benchmark.application.configuration import SURFACE_GENERATION_DEFAULTS
 from topology_benchmark.core.models import GenerationRequest
 from topology_benchmark.core.probability import (
     FiniteDistribution,
@@ -13,6 +15,7 @@ from topology_benchmark.core.probability import (
     interpolate_anchors,
 )
 from topology_benchmark.domains.surfaces.analysis import SurfaceAnalyzer
+from topology_benchmark.domains.surfaces.benchmark import SurfaceBenchmark
 from topology_benchmark.domains.surfaces.components.generation_config import (
     SurfaceGenerationConfig,
     load_generation_config,
@@ -21,14 +24,13 @@ from topology_benchmark.domains.surfaces.components.generator import (
     RandomSurfaceMorphismGenerator,
     RandomSurfacePresentationGenerator,
 )
-from topology_benchmark.domains.surfaces.components.intent import (
-    RandomSurfaceIntentGenerator,
-)
+from topology_benchmark.domains.surfaces.distributions import SurfaceDefaultQuestionDistribution
 from topology_benchmark.domains.surfaces.generation import (
-    ProblemSubject,
+    PathGenerationMode,
     QuestionFocus,
-    SurfaceGenerationContext,
-    SurfaceProblemIntent,
+    SurfaceMorphismGenerationContext,
+    SurfaceObjectGenerationContext,
+    SurfaceObjectGenerationSpec,
 )
 from topology_benchmark.domains.surfaces.ports import SurfaceGenerator, SurfaceMorphismGenerator
 
@@ -58,53 +60,52 @@ def test_difficulty_profiles_interpolate_smoothly() -> None:
     assert interpolate_anchors(anchors, 10) == 1.0
 
 
-def test_intent_cohorts_follow_difficulty_and_keep_noise_rare() -> None:
-    config = load_generation_config()
-    generator = RandomSurfaceIntentGenerator(config)
+def test_default_question_distribution_follows_configured_cohort_weights() -> None:
+    config = load_generation_config(SURFACE_GENERATION_DEFAULTS)
+    distribution = build_container().resolve(SurfaceDefaultQuestionDistribution)
 
     def cohort(difficulty: int) -> Counter[str]:
-        return Counter(
-            generator.sample(
-                GenerationRequest(seed, difficulty),
-                SamplingSession(seed, config.profile_version),
-            ).focus.value
-            for seed in range(2000)
-        )
+        return Counter(distribution.at(difficulty).sample(Random(seed)).id for seed in range(2000))
 
     easy, hard = cohort(1), cohort(10)
-    assert easy["relational"] + easy["target-only"] == 0
-    assert hard["relational"] + hard["target-only"] == 0
-    assert hard["path"] > easy["path"] * 3
+    morphism_ids = {
+        question for group in config.morphism_questions.values() for question, _ in group
+    }
+    path_ids = {question for question, _ in config.object_questions["path"]}
+    assert 0 < sum(easy[question] for question in morphism_ids) < 0.10 * 2000
+    assert sum(hard[question] for question in morphism_ids) > 0.20 * 2000
+    assert (
+        sum(hard[question] for question in path_ids)
+        > sum(easy[question] for question in path_ids) * 3
+    )
 
 
 def test_paths_are_question_aligned_but_allow_low_rate_noise() -> None:
-    config = load_generation_config()
+    config = load_generation_config(SURFACE_GENERATION_DEFAULTS)
     generator = RandomSurfacePresentationGenerator(config, SurfaceAnalyzer())
     incidental = 0
     cohort_size = 500
     for seed in range(cohort_size):
         request = GenerationRequest(seed, 7)
         sampling = SamplingSession(seed, config.profile_version)
-        intent = SurfaceProblemIntent(
-            ProblemSubject.OBJECT,
-            "connected-components",
+        spec = SurfaceObjectGenerationSpec(
             QuestionFocus.GLOBAL,
+            favor_multiple_polygons=True,
         )
-        surface = generator.generate_for(SurfaceGenerationContext(request, intent, sampling))
+        surface = generator.generate_for(SurfaceObjectGenerationContext(request, spec, sampling))
         incidental += bool(surface.paths)
         assert all(len(path.edges) <= 7 for path in surface.paths)
         assert sum(len(path.edges) for path in surface.paths) <= 7
 
-    path_intent = SurfaceProblemIntent(
-        ProblemSubject.OBJECT,
-        "path-representative",
+    path_spec = SurfaceObjectGenerationSpec(
         QuestionFocus.PATH,
+        path_mode=PathGenerationMode.REPRESENTATIVE,
     )
     request = GenerationRequest(99, 10)
     surface = generator.generate_for(
-        SurfaceGenerationContext(
+        SurfaceObjectGenerationContext(
             request,
-            path_intent,
+            path_spec,
             SamplingSession(request.seed, config.profile_version),
         )
     )
@@ -116,19 +117,16 @@ def test_paths_are_question_aligned_but_allow_low_rate_noise() -> None:
 
 
 def test_simple_two_disk_spheres_are_rare_at_high_difficulty() -> None:
-    config = load_generation_config()
+    config = load_generation_config(SURFACE_GENERATION_DEFAULTS)
     generator = RandomSurfaceMorphismGenerator(config, SurfaceAnalyzer())
     families: Counter[str] = Counter()
-    intent = SurfaceProblemIntent(
-        ProblemSubject.MORPHISM,
-        "boundary-change",
-        QuestionFocus.RELATIONAL,
-    )
     for seed in range(1000):
         request = GenerationRequest(seed, 10)
         sampling = SamplingSession(seed, config.profile_version)
-        context = SurfaceGenerationContext(request, intent, sampling)
-        families[generator._family(context)] += 1
+        context = SurfaceMorphismGenerationContext(
+            request, config.affinity_for("boundary-change"), sampling
+        )
+        families[generator._family(context).value] += 1
 
     assert families["full-disk-boundary"] < 0.05 * 1000
     assert len(families) == 5
@@ -148,6 +146,9 @@ def test_generation_yaml_is_layered_and_injected() -> None:
     assert isinstance(morphism_generator, RandomSurfaceMorphismGenerator)
     assert generator.config is config
     assert morphism_generator.config is config
-    problem = benchmark.generate(seed=3, difficulty=1)
+    problem = benchmark.generate(
+        request=GenerationRequest(3, 1),
+        distribution=container.resolve(SurfaceDefaultQuestionDistribution).at(1),
+    )
     assert problem.question_kind
     assert problem.sections

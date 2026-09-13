@@ -1,7 +1,7 @@
 import hashlib
 from itertools import pairwise
 from random import Random
-from typing import Protocol
+from typing import Protocol, override
 
 from attrs import field, frozen
 
@@ -37,6 +37,7 @@ class FiniteDistribution[T](Distribution[T]):
         )
     )
 
+    @override
     def sample(self, rng: Random) -> T:
         threshold = rng.random() * sum(item.weight for item in self.values)
         cumulative = 0.0
@@ -57,6 +58,7 @@ class BernoulliDistribution(Distribution[bool]):
         )
     )
 
+    @override
     def sample(self, rng: Random) -> bool:
         return rng.random() < self.probability
 
@@ -82,6 +84,7 @@ class TruncatedGeometricDistribution(Distribution[int]):
         if self.maximum < self.minimum:
             raise ValueError("invalid truncated geometric bounds")
 
+    @override
     def sample(self, rng: Random) -> int:
         value = self.minimum
         while value < self.maximum and rng.random() < self.continuation_probability:

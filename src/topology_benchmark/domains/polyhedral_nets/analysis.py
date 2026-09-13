@@ -90,17 +90,6 @@ class PolyhedralNetAnalyzer:
             return sum(angles, Fraction())
         return math.fsum(float(angle) for angle in angles)
 
-    def marked_vertex_type(self, folding: PolyhedralFolding) -> VertexType:
-        net = folding.net
-        if net.marked_corner is None:
-            raise ValueError("the net has no marked folded vertex")
-        analysis = self.analyze(folding)
-        return next(
-            kind
-            for vertex, kind in zip(analysis.vertices, analysis.vertex_types, strict=True)
-            if net.marked_corner in vertex
-        )
-
     def seam_answer(self, folding: PolyhedralFolding) -> str:
         return self.pairing_answer(folding.net, folding.seams)
 

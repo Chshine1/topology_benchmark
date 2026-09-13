@@ -1,5 +1,6 @@
 import math
 from random import Random
+from typing import override
 
 from topology_benchmark.core.models import GenerationRequest
 from topology_benchmark.core.probability import (
@@ -15,10 +16,13 @@ from topology_benchmark.domains.surfaces.components.generation_config import (
     SurfaceGenerationConfig,
 )
 from topology_benchmark.domains.surfaces.generation import (
-    ProblemSubject,
+    MorphismFamily,
+    MorphismFamilyAffinity,
+    PathGenerationMode,
     QuestionFocus,
-    SurfaceGenerationContext,
-    SurfaceProblemIntent,
+    SurfaceMorphismGenerationContext,
+    SurfaceObjectGenerationContext,
+    SurfaceObjectGenerationSpec,
 )
 from topology_benchmark.domains.surfaces.models import (
     BoundaryGluingMorphism,
@@ -39,17 +43,19 @@ class RandomSurfacePresentationGenerator(SurfaceGenerator):
         self.config = config
         self._analyzer = analyzer
 
+    @override
     def generate(self, request: GenerationRequest, rng: Random) -> SurfacePresentation:
         sampling = SamplingSession(request.seed, self.config.profile_version)
-        intent = SurfaceProblemIntent(
-            ProblemSubject.OBJECT, "euler-characteristic", QuestionFocus.GLOBAL
-        )
-        return self._generate(SurfaceGenerationContext(request, intent, sampling), rng)
+        spec = SurfaceObjectGenerationSpec(QuestionFocus.GLOBAL)
+        return self._generate(SurfaceObjectGenerationContext(request, spec, sampling), rng)
 
-    def generate_for(self, context: SurfaceGenerationContext) -> SurfacePresentation:
+    @override
+    def generate_for(self, context: SurfaceObjectGenerationContext) -> SurfacePresentation:
         return self._generate(context, context.sampling.rng("surface.structure"))
 
-    def _generate(self, context: SurfaceGenerationContext, rng: Random) -> SurfacePresentation:
+    def _generate(
+        self, context: SurfaceObjectGenerationContext, rng: Random
+    ) -> SurfacePresentation:
         for _ in range(self.config.retry_limit):
             polygon_count = self._polygon_count(context, rng)
             polygons = tuple(
@@ -80,7 +86,7 @@ class RandomSurfacePresentationGenerator(SurfaceGenerator):
                 continue
             paths = self._paths(candidate, context)
             completed = SurfacePresentation(polygons, gluings, paths)
-            if context.intent.question_kind == "path-representative":
+            if context.spec.path_mode is PathGenerationMode.REPRESENTATIVE:
                 facts = self._analyzer.analyze(completed)
                 generators = self._analyzer.h1_edge_generators(completed)
                 tagged_edges = {
@@ -98,7 +104,7 @@ class RandomSurfacePresentationGenerator(SurfaceGenerator):
                     continue
             return completed
 
-        if context.intent.question_kind == "path-representative":
+        if context.spec.path_mode is PathGenerationMode.REPRESENTATIVE:
             fallback = SurfacePresentation(
                 (Polygon("P", 4),),
                 (
@@ -112,16 +118,16 @@ class RandomSurfacePresentationGenerator(SurfaceGenerator):
         fallback = SurfacePresentation((Polygon("P", sides),), ())
         return SurfacePresentation(fallback.polygons, (), self._paths(fallback, context))
 
-    def _polygon_count(self, context: SurfaceGenerationContext, rng: Random) -> int:
+    def _polygon_count(self, context: SurfaceObjectGenerationContext, rng: Random) -> int:
         profile = self.config.difficulty
         difficulty = context.request.difficulty
         target = profile.visual_budget.at(difficulty)
         options = []
         for count, weights in profile.polygon_count_weights.items():
             aligned = weights.at(difficulty)
-            if context.intent.question_kind == "connected-components":
+            if context.spec.favor_multiple_polygons:
                 aligned *= 3.0 if count >= 2 else 0.35
-            if context.intent.focus is QuestionFocus.PATH and count > 2:
+            if context.spec.focus is QuestionFocus.PATH and count > 2:
                 aligned *= 0.3
             aligned *= math.exp(-0.35 * max(0.0, count - target / 2) ** 2)
             options.append(
@@ -136,10 +142,12 @@ class RandomSurfacePresentationGenerator(SurfaceGenerator):
         continuation = self.config.difficulty.side_continuation.at(request.difficulty)
         return TruncatedGeometricDistribution(3, 8, continuation).sample(rng)
 
-    def _pair_count(self, context: SurfaceGenerationContext, edge_count: int, rng: Random) -> int:
+    def _pair_count(
+        self, context: SurfaceObjectGenerationContext, edge_count: int, rng: Random
+    ) -> int:
         maximum = edge_count // 2
         density = self.config.difficulty.gluing_density.at(context.request.difficulty)
-        if context.intent.focus is QuestionFocus.CLASSIFICATION:
+        if context.spec.focus is QuestionFocus.CLASSIFICATION:
             density = min(0.85, density * 1.2)
         target = density * maximum
         budget = self.config.difficulty.visual_budget.at(context.request.difficulty)
@@ -158,9 +166,9 @@ class RandomSurfacePresentationGenerator(SurfaceGenerator):
         return FiniteDistribution(options).sample(rng)
 
     def _paths(
-        self, surface: SurfacePresentation, context: SurfaceGenerationContext
+        self, surface: SurfacePresentation, context: SurfaceObjectGenerationContext
     ) -> tuple[SurfacePath, ...]:
-        focused = context.intent.focus is QuestionFocus.PATH
+        focused = context.spec.focus is QuestionFocus.PATH
         incidental: bool = False
         if not focused:
             incidental = context.sampling.sample(
@@ -168,7 +176,7 @@ class RandomSurfacePresentationGenerator(SurfaceGenerator):
                 BernoulliDistribution(self.config.noise_probability),
             )
         extra: bool = False
-        if focused and context.intent.question_kind != "path-representative":
+        if focused and context.spec.path_mode is not PathGenerationMode.REPRESENTATIVE:
             extra = context.sampling.sample(
                 "paths.extra",
                 BernoulliDistribution(self.config.noise_probability),
@@ -187,7 +195,7 @@ class RandomSurfacePresentationGenerator(SurfaceGenerator):
     def _path(
         self,
         surface: SurfacePresentation,
-        context: SurfaceGenerationContext,
+        context: SurfaceObjectGenerationContext,
         index: int,
         segment_budget: int,
     ) -> SurfacePath:
@@ -200,8 +208,8 @@ class RandomSurfacePresentationGenerator(SurfaceGenerator):
             f"path.{index}.length",
             TruncatedGeometricDistribution(1, maximum, continuation),
         )
-        must_be_closed: bool = context.intent.question_kind == "path-representative" and index == 0
-        if context.intent.question_kind == "path-is-cycle" and index == 0:
+        must_be_closed = context.spec.path_mode is PathGenerationMode.REPRESENTATIVE and index == 0
+        if context.spec.path_mode is PathGenerationMode.CYCLE_TEST and index == 0:
             must_be_closed = context.sampling.sample(
                 f"path.{index}.closed", BernoulliDistribution(0.55)
             )
@@ -269,41 +277,40 @@ class RandomSurfaceMorphismGenerator(SurfaceMorphismGenerator):
         self.config = config
         self._analyzer = analyzer
 
+    @override
     def generate(self, request: GenerationRequest, rng: Random) -> SurfaceMorphism:
         sampling = SamplingSession(request.seed, self.config.profile_version)
-        intent = SurfaceProblemIntent(
-            ProblemSubject.MORPHISM, "boundary-change", QuestionFocus.RELATIONAL
-        )
-        return self._generate(SurfaceGenerationContext(request, intent, sampling), rng)
+        context = SurfaceMorphismGenerationContext(request, MorphismFamilyAffinity(), sampling)
+        return self._generate(context, rng)
 
-    def generate_for(self, context: SurfaceGenerationContext) -> SurfaceMorphism:
+    @override
+    def generate_for(self, context: SurfaceMorphismGenerationContext) -> SurfaceMorphism:
         return self._generate(context, context.sampling.rng("morphism.structure"))
 
-    def _generate(self, context: SurfaceGenerationContext, rng: Random) -> SurfaceMorphism:
+    def _generate(self, context: SurfaceMorphismGenerationContext, rng: Random) -> SurfaceMorphism:
         family = self._family(context)
         for _ in range(40):
             try:
-                if family == "full-disk-boundary":
+                if family is MorphismFamily.FULL_DISK_BOUNDARY:
                     sides = self._side_count(context.request, rng)
                     return self._glue_two_disks(rng, sides)
-                if family == "attachment":
+                if family is MorphismFamily.ATTACHMENT:
                     return self._attach_polygon(rng)
-                if family == "partial-intercomponent":
+                if family is MorphismFamily.PARTIAL_INTERCOMPONENT:
                     return self._partial_intercomponent(rng, context.request.difficulty)
-                if family == "self-boundary":
+                if family is MorphismFamily.SELF_BOUNDARY:
                     return self._self_boundary(rng, context.request.difficulty)
                 return self._close_annulus(rng)
             except ValueError:
                 continue
         return self._attach_polygon(rng)
 
-    def _family(self, context: SurfaceGenerationContext) -> str:
-        affinity = self.config.morphism_affinity.get(context.intent.question_kind, {})
+    def _family(self, context: SurfaceMorphismGenerationContext) -> MorphismFamily:
         options = tuple(
             WeightedValue(
                 family,
                 blended_weight(
-                    weights.at(context.request.difficulty) * affinity.get(family, 1.0),
+                    weights.at(context.request.difficulty) * context.affinity.for_family(family),
                     weights.at(context.request.difficulty),
                     self.config.noise_probability,
                 ),

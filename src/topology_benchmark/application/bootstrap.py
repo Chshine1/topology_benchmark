@@ -2,14 +2,33 @@ from pathlib import Path
 
 from lagom import Container
 
+from topology_benchmark.application.catalog import BenchmarkCatalog, BenchmarkRegistration
+from topology_benchmark.application.configuration import (
+    SURFACE_GENERATION_DEFAULTS,
+    SURFACE_RENDERING_DEFAULTS,
+)
+from topology_benchmark.domains.polyhedral_nets.benchmark import (
+    PolyhedralNetsBenchmark,
+    PolyhedralQuestionCatalog,
+)
+from topology_benchmark.domains.polyhedral_nets.distributions import (
+    PolyhedralDefaultQuestionDistribution,
+)
 from topology_benchmark.domains.polyhedral_nets.registration import add_polyhedral_nets_domain
+from topology_benchmark.domains.surfaces.benchmark import SurfaceBenchmark, SurfaceQuestionCatalog
 from topology_benchmark.domains.surfaces.components.generation_config import (
     load_generation_config,
 )
 from topology_benchmark.domains.surfaces.components.rendering_config import (
     load_rendering_config,
 )
+from topology_benchmark.domains.surfaces.distributions import SurfaceDefaultQuestionDistribution
 from topology_benchmark.domains.surfaces.registration import add_surface_domain
+from topology_benchmark.domains.torus_slices.benchmark import (
+    TorusQuestionCatalog,
+    TorusSlicesBenchmark,
+)
+from topology_benchmark.domains.torus_slices.distributions import TorusDefaultQuestionDistribution
 from topology_benchmark.domains.torus_slices.registration import add_torus_slices_domain
 
 
@@ -20,9 +39,31 @@ def build_container(
     container = Container()
     add_surface_domain(
         container,
-        load_generation_config(generation_config),
-        load_rendering_config(rendering_config),
+        load_generation_config(SURFACE_GENERATION_DEFAULTS, generation_config),
+        load_rendering_config(SURFACE_RENDERING_DEFAULTS, rendering_config),
     )
     add_polyhedral_nets_domain(container)
     add_torus_slices_domain(container)
+    container[BenchmarkCatalog] = BenchmarkCatalog(
+        (
+            BenchmarkRegistration(
+                "surfaces",
+                container.resolve(SurfaceBenchmark),
+                container.resolve(SurfaceQuestionCatalog),
+                container.resolve(SurfaceDefaultQuestionDistribution),
+            ),
+            BenchmarkRegistration(
+                "polyhedral-nets",
+                container.resolve(PolyhedralNetsBenchmark),
+                container.resolve(PolyhedralQuestionCatalog),
+                container.resolve(PolyhedralDefaultQuestionDistribution),
+            ),
+            BenchmarkRegistration(
+                "torus-slices",
+                container.resolve(TorusSlicesBenchmark),
+                container.resolve(TorusQuestionCatalog),
+                container.resolve(TorusDefaultQuestionDistribution),
+            ),
+        )
+    )
     return container

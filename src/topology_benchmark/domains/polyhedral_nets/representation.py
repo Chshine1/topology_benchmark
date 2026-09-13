@@ -1,20 +1,20 @@
 import html
 import math
 from random import Random
+from typing import override
 
 from topology_benchmark.core.models import GenerationRequest, QuestionSection
-from topology_benchmark.core.protocols import Representation
 from topology_benchmark.domains.polyhedral_nets.models import (
-    FaceCorner,
     NetEdge,
     PolygonFace,
     PolyhedralNet,
 )
+from topology_benchmark.domains.polyhedral_nets.ports import PolyhedralNetRepresentation
 
 type Point = tuple[float, float]
 
 
-class PolyhedralNetSvgRenderer(Representation[PolyhedralNet]):
+class PolyhedralNetSvgRenderer(PolyhedralNetRepresentation):
     def common_scale(self, objects: tuple[PolyhedralNet, ...]) -> float:
         """Return one pixels-per-unit scale that fits every net in a comparison."""
         limits = []
@@ -31,6 +31,7 @@ class PolyhedralNetSvgRenderer(Representation[PolyhedralNet]):
             )
         return min(limits)
 
+    @override
     def render(
         self,
         obj: PolyhedralNet,
@@ -164,18 +165,6 @@ class PolyhedralNetSvgRenderer(Representation[PolyhedralNet]):
                 'dominant-baseline="middle" font-family="sans-serif" font-size="8.5" '
                 f'fill="#5f6368">{html.escape(label)}</text>'
             )
-        if obj.marked_corner is not None and not obj.corner_labels:
-            marked_points = self._marked_points(obj, layouts, obj.marked_corner)
-            for point in marked_points:
-                x, y = screen(point)
-                chunks.append(
-                    f'<circle cx="{x:.3f}" cy="{y:.3f}" r="5.5" fill="#d93025" '
-                    'stroke="white" stroke-width="1.5"/>'
-                )
-            chunks.append(
-                '<text x="14" y="24" font-family="sans-serif" font-size="13" fill="#d93025">'
-                "The red corner belongs to the queried folded vertex.</text>"
-            )
         footer = (
             "rigid faces · diagram drawn to scale"
             if any(isinstance(face, PolygonFace) for face in obj.faces)
@@ -259,12 +248,3 @@ class PolyhedralNetSvgRenderer(Representation[PolyhedralNet]):
         if any(vertex is None for vertex in vertices):
             raise AssertionError("incomplete regular polygon layout")
         return tuple(vertex for vertex in vertices if vertex is not None)
-
-    @staticmethod
-    def _marked_points(
-        net: PolyhedralNet,
-        layouts: tuple[tuple[Point, ...], ...],
-        marked: FaceCorner,
-    ) -> tuple[Point, ...]:
-        del net
-        return (layouts[marked.face][marked.corner],)

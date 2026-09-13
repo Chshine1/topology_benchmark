@@ -4,6 +4,7 @@ import pytest
 from attrs import exceptions
 from pydantic import ValidationError
 
+from topology_benchmark.application.configuration import SURFACE_RENDERING_DEFAULTS
 from topology_benchmark.core.models import GenerationRequest
 from topology_benchmark.core.probability import (
     BernoulliDistribution,
@@ -50,7 +51,7 @@ def test_rendering_yaml_is_strict(tmp_path: Path) -> None:
     override.write_text("rendering:\n  geometry:\n    curve_samples: '96'\n", encoding="utf-8")
 
     with pytest.raises(ValidationError, match="curve_samples"):
-        load_rendering_config(override)
+        load_rendering_config(SURFACE_RENDERING_DEFAULTS, override)
 
 
 def test_pipeline_yaml_rejects_unknown_fields(tmp_path: Path) -> None:

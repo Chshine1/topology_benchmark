@@ -16,6 +16,9 @@ dev = [
 build-backend = "hatchling.build"
 requires = ["hatchling"]
 
+[tool.hatch.build.targets.wheel.shared-data]
+"config" = "share/topology_benchmark/config"
+
 [tool.pixi.workspace]
 channels = ["conda-forge"]
 platforms = ["win-64"]

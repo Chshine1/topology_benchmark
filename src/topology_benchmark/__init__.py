@@ -1,15 +1,10 @@
 from topology_benchmark.application.bootstrap import build_container
-from topology_benchmark.application.services import (
-    PolyhedralNetsBenchmark,
-    SurfaceBenchmark,
-)
-from topology_benchmark.core.models import Problem
-from topology_benchmark.domains.torus_slices.benchmark import TorusSlicesBenchmark
+from topology_benchmark.application.catalog import BenchmarkCatalog
+from topology_benchmark.core.models import GenerationRequest, Problem
 
 __all__ = [
-    "PolyhedralNetsBenchmark",
+    "BenchmarkCatalog",
+    "GenerationRequest",
     "Problem",
-    "SurfaceBenchmark",
-    "TorusSlicesBenchmark",
     "build_container",
 ]

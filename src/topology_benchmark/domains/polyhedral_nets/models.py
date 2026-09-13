@@ -137,7 +137,6 @@ class PolyhedralNet:
     name: str
     faces: tuple[NetFace, ...]
     hinges: tuple[EdgePair, ...]
-    marked_corner: FaceCorner | None = None
     seam_hints: tuple[EdgePair, ...] = ()
     edge_labels: tuple[tuple[NetEdge, str], ...] = ()
     corner_labels: tuple[tuple[FaceCorner, str], ...] = ()
@@ -159,8 +158,6 @@ class PolyhedralNet:
         if len(self.hinges) != len(self.faces) - 1:
             raise ValueError("the uncut hinges must form a face spanning tree")
         self._validate_hinge_tree()
-        if self.marked_corner is not None:
-            self._validate_corner(self.marked_corner)
         boundary = set(self.boundary_edges)
         hinted: set[NetEdge] = set()
         for pair in self.seam_hints:

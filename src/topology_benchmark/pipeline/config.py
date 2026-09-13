@@ -20,9 +20,7 @@ class _StrictConfigModel(BaseModel):
 class WeightedConfig(_StrictConfigModel):
     weight: PositiveFloat = 1.0
     generation_levels: dict[Difficulty, PositiveFloat] = Field(default_factory=lambda: {5: 1.0})
-    question_kinds: dict[Annotated[str, Field(min_length=1)], PositiveFloat] = Field(
-        default_factory=dict
-    )
+    recipes: dict[Annotated[str, Field(min_length=1)], PositiveFloat] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def _has_generation_levels(self) -> Self:
@@ -53,14 +51,12 @@ class PipelineConfig(_StrictConfigModel):
     output_dir: Path
     domains: dict[str, WeightedConfig]
     seed: int | None = None
-    max_generation_attempts: Annotated[int, Field(gt=0)] = 100
     provider: ProviderConfig | None = None
 
     @model_validator(mode="after")
-    def _domains_are_supported(self) -> Self:
-        known = {"surfaces", "polyhedral-nets", "torus-slices"}
-        if not self.domains or set(self.domains) - known:
-            raise ValueError(f"domains must be selected from {sorted(known)}")
+    def _has_domains(self) -> Self:
+        if not self.domains:
+            raise ValueError("at least one domain must be configured")
         return self
 
 
@@ -72,7 +68,6 @@ class _RunConfig(_StrictConfigModel):
 
 class _GenerationConfig(_StrictConfigModel):
     domains: dict[str, WeightedConfig]
-    max_attempts_per_item: Annotated[int, Field(gt=0)] = 100
 
 
 class _PipelineDocument(_StrictConfigModel):
@@ -93,6 +88,5 @@ def load_pipeline_config(path: str | Path) -> PipelineConfig:
         output_dir=output.resolve(),
         domains=document.generation.domains,
         seed=document.run.seed,
-        max_generation_attempts=document.generation.max_attempts_per_item,
         provider=document.provider,
     )

@@ -19,6 +19,9 @@
 
 ## Composition and registration
 
+- Keep deployable YAML files in the project-level `config/` directory rather than beside Python
+  modules. Typed schemas and loaders belong with their domain code, while the composition root
+  explicitly selects the configuration files passed to those loaders.
 - Keep `build_container` as a small orchestration boundary: load and validate external
   configuration there, create the container, and delegate registrations to cohesive
   `add_<domain>_domain` functions located with their domains.
@@ -37,6 +40,27 @@
 - Keep a static method only for a leaf operation that needs neither instance state nor
   subclass-aware dispatch. Do not qualify protected helper calls with a concrete class name from
   within that class.
+- Mark intentional method overrides with `typing.override`, including explicit protocol
+  implementations. Model required template-method hooks as protected abstract methods so missing
+  implementations are caught before the orchestration path invokes them.
+- Prefer an underscore-prefixed name for an intentionally unused positional-only parameter. When
+  an inherited public signature must preserve a keyword parameter name, `del parameter` is an
+  acceptable explicit unused-parameter marker.
+
+## Errors and method extraction
+
+- Use `ValueError` for invalid values and violated construction invariants. Preserve `KeyError` for
+  ordinary `Mapping.__getitem__` misses, but translate user-controlled application lookups into
+  structured application exceptions carrying the rejected value and available choices.
+- Translate exceptions only at boundaries that can add meaning or recover: CLI adapters format
+  correctable request/configuration errors, HTTP adapters map known errors to status codes, and
+  pipeline provider failures may become per-item results. Do not broadly classify internal
+  `ValueError` failures as user input errors.
+- Represent exhausted bounded generation with a specific operational exception rather than a
+  generic `RuntimeError`. Reserve `AssertionError` for unreachable internal states.
+- Extract a helper when it owns a named policy, invariant, or reusable domain operation. Do not
+  extract a method merely to hide a short expression; names such as `require_<concept>` should make
+  validation and exception translation explicit.
 
 ## Protocols
 
@@ -48,6 +72,20 @@
 - Prefer concrete unions or shared data models when code needs the complete variants and no
   consumer is polymorphic over an open-ended interface. Do not introduce a protocol only to give
   related data classes a nominal parent.
+- Keep immutable mathematical objects and closed morphism variants as data. Put behavioral
+  variability behind registered problem recipes, generators, analyzers, and renderers.
+- Configuration may weight stable registered capability IDs, but must not name import paths or
+  construct dependency graphs. A recipe owns compatibility between generation, certification,
+  question formulation, answer computation, and presentation.
+- Represent question selection as a distribution over registered question objects. Question-specific
+  generation parameters belong in typed configuration carried by the question; generators must not
+  inspect question IDs to choose behavior.
+- Resolve external question IDs and difficulty-aware defaults at the application boundary into one
+  non-null distribution before calling a provider. Do not encode ID, override-distribution, and
+  default-distribution selection as parallel nullable provider or selector arguments.
+- Keep benchmark providers as orchestration shells: resolve a selected question, invoke its domain
+  lifecycle, and return the result. Adding a question must not require extending a central dispatch
+  branch in a benchmark or generator.
 
 ## Properties and data
 

@@ -1,13 +1,19 @@
 generation:
-  profile_version: "surface-v2"
+  profile_version: "surface-v5"
   noise_probability: 0.075
   retry_limit: 250
+
+  subjects:
+    object: {1: 0.95, 4: 0.90, 7: 0.82, 10: 0.75}
+    morphism: {1: 0.05, 4: 0.10, 7: 0.18, 10: 0.25}
 
   difficulty:
     question_family_weights:
       global: {1: 0.75, 4: 0.55, 7: 0.35, 10: 0.20}
       classification: {1: 0.20, 4: 0.30, 7: 0.35, 10: 0.40}
       path: {1: 0.05, 4: 0.15, 7: 0.30, 10: 0.40}
+      relational: {1: 3.0, 10: 3.0}
+      target-only: {1: 1.0, 3: 1.0, 10: 3.3333333333}
     polygon_count_weights:
       1: {1: 0.85, 4: 0.55, 7: 0.30, 10: 0.15}
       2: {1: 0.13, 4: 0.33, 7: 0.40, 10: 0.35}
@@ -32,6 +38,17 @@ generation:
       path:
         path-is-cycle: 1.0
         path-representative: 1.0
+    morphism:
+      relational:
+        euler-change: 1.0
+        boundary-change: 1.0
+        component-change: 1.0
+        map-injective: 1.0
+        map-surjective: 1.0
+        homology-isomorphism: 1.0
+      target-only:
+        target-homology: 1.0
+        target-orientable: 1.0
   morphisms:
     families:
       full-disk-boundary: {1: 0.35, 4: 0.18, 7: 0.06, 10: 0.02}

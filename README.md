@@ -13,19 +13,19 @@ questions as well as relational questions about links or pairs of unfoldings.
 seed + difficulty + profile
             |
             v
-     question intent
+  question distribution
             |
             v
- mathematical object ---> exact analyzer ---> ground-truth answer
+ registered question ---> object/morphism generator ---> exact analyzer
             |
             v
-     display planning ---> deterministic SVG question section
+ certified answer + display planning ---> deterministic question sections
 ```
 
 ## Current capabilities
 
 - Seeded, difficulty-controlled generation on a scale from 1 to 10.
-- Intent-first sampling: the question family is selected before a compatible instance is built.
+- Typed question distributions: select configured question objects before compatible instances are built.
 - Object problems with one or more visual observations.
 - Exact surface validation and invariant computation from combinatorial data.
 - Integral cellular homology, including torsion and path coordinates in explicit bases.
@@ -34,7 +34,7 @@ seed + difficulty + profile
 - YAML profiles for generation probabilities and rendering parameters.
 - Protocol-based core types that can support additional mathematical domains and media types.
 
-Both domains are wired into the command-line application and the domain-independent viewer.
+All three domains are wired into the command-line application and the domain-independent viewer.
 
 ## Quick start
 
@@ -83,10 +83,17 @@ Useful CLI options are:
 The cross-domain API consists of immutable dataclasses:
 
 ```python
-from topology_benchmark import SurfaceBenchmark, build_container
+from topology_benchmark import BenchmarkCatalog, GenerationRequest, build_container
 
-benchmark = build_container().resolve(SurfaceBenchmark)
-problem = benchmark.generate(seed=42, difficulty=8)
+catalog = build_container().resolve(BenchmarkCatalog)
+request = GenerationRequest(seed=42, difficulty=8)
+problem = catalog.generate(domain="surfaces", request=request)
+# Or select one registered recipe directly, without rejection sampling.
+problem = catalog.generate_recipe(
+    domain="surfaces",
+    request=request,
+    recipe_id="boundary-change",
+)
 
 print(problem.question)
 print(problem.answer)
@@ -99,7 +106,7 @@ A `Problem` contains:
 | --- | --- |
 | `question` | Natural-language task shown to the answerer |
 | `sections` | One or more `QuestionSection` values containing supplied question material |
-| `answer` | Exact computed ground truth (`int`, `bool`, or `str` in the surface domain) |
+| `answer` | Exact computed ground truth (`int`, `bool`, `str`, or an integer tuple) |
 | `seed` | Seed needed to reproduce the instance |
 | `question_kind` | Stable kind used for dataset selection and result grouping |
 
@@ -112,9 +119,21 @@ Named random streams isolate decisions, so introducing an unrelated sampling ste
 existing choices. A deliberate semantic change to a generation profile should therefore also bump
 its `profile_version`.
 
+### Registered recipe selection
+
+Pipeline YAML uses stable recipe IDs to control the generated dataset mixture. `BenchmarkCatalog`
+resolves each ID to its registered question object and a distribution concentrated on that object.
+Calling `generate` uses the domain's configured difficulty-aware default distribution, while
+`generate_recipe` explicitly requests one recipe.
+
+Adding a question means implementing the domain question protocol/base class, declaring its typed
+configuration and collaborators, and registering the instance. It does not require editing a
+central question-building branch. Default difficulty-aware distributions are assembled in each
+domain registration boundary and resolved by `BenchmarkCatalog` before it calls a provider.
+
 ## Polyhedral-net domain
 
-The v6 domain starts from a real convex `Polyhedron3D` with rational coordinates and possibly
+The v8 domain starts from a real convex `Polyhedron3D` with rational coordinates and possibly
 irregular polygonal faces. It validates the closed oriented boundary and exact convex support
 planes, chooses a random face-dual spanning tree, develops the faces into the plane, and rejects
 overlapping layouts. `PolyhedralFolding` keeps the source and closing seams away from the renderer.
@@ -201,10 +220,11 @@ The current question catalog is:
 | Surface | Global | Euler characteristic; boundary-component count; connected-component count |
 | Surface | Classification | orientability; integral `H_0`, `H_1`, and `H_2` |
 | Surface | Path | whether a displayed path is a cycle; its coefficients in a displayed homology basis |
+| Morphism | Relational | changes in Euler characteristic, boundary count, or component count; injectivity; surjectivity; homology isomorphism |
+| Morphism | Target-only | target homology; target orientability |
 
-Morphism questions are currently withheld from benchmark sampling. The existing construction API
-remains available for developing induced-map questions with explicit source/target correspondences
-and displayed homology bases. It contains two first-class arrow types:
+Morphism questions are registered alongside object questions and render separate source and target
+sections. The generation model contains two first-class arrow types:
 
 - `BoundaryGluingMorphism`: a quotient formed by pairing previously unglued source sides.
 - `PolygonAttachmentMorphism`: an inclusion formed by attaching one new polygon along a source side.
@@ -239,14 +259,14 @@ those generators, with torsion coordinates canonically reduced.
 
 ## Generation profiles
 
-Defaults live in
-`src/topology_benchmark/domains/surfaces/generation.yaml`. Values specified at difficulty anchors
-1, 4, 7, and 10 are linearly interpolated. The profile controls:
+Defaults live in `config/surfaces/generation.yaml`. Values specified at difficulty anchors are
+linearly interpolated. The profile controls:
 
-- object question-family weights;
+- object-versus-morphism subject weights and conditional recipe weights;
 - polygon counts, side-count continuation, and gluing density;
 - path-length continuation and visual complexity budgets;
-- dormant morphism-family settings retained for induced-map research;
+- morphism-family weights and per-question affinities, converted at configuration load time into a
+  typed generation policy so the generator never dispatches on question IDs;
 - rare intentional noise and retry limits.
 
 Incidental paths occur at a low 7.5% noise rate. Path lengths follow a truncated geometric
@@ -258,7 +278,7 @@ values:
 
 ```yaml
 generation:
-  profile_version: "surface-v2"
+  profile_version: "surface-v3"
   noise_probability: 0.05
   difficulty:
     question_family_weights:
@@ -297,7 +317,7 @@ The notation is designed to preserve the information needed to solve a problem:
   misleading interior circle.
 - Thin, colored paths use numbered tags or repeated arrowheads to encode segment order.
 
-Rendering defaults live in `src/topology_benchmark/domains/surfaces/rendering.yaml`, grouped under
+Rendering defaults live in `config/surfaces/rendering.yaml`, grouped under
 `canvas`, `geometry`, `stroke`, `arrows`, `labels`, and `palettes`. Overrides are recursively merged
 and validated:
 
@@ -318,49 +338,61 @@ container = build_container(rendering_config="my-rendering-overrides.yaml")
 ## Architecture and extension points
 
 ```text
+config/
+|-- pipeline.example.yaml         example dynamic-evaluation run
+`-- surfaces/
+    |-- generation.yaml           default probabilistic profile
+    `-- rendering.yaml            default visual profile
 src/topology_benchmark/
 |-- core/                         shared Problem types, protocols, probability, recipes
-|-- application/                  dependency wiring, benchmark service, local HTTP demo
-|-- domains/surfaces/
-|   |-- models/                   pure combinatorial objects and morphisms
-|   |-- analysis.py               validation, classification, cellular homology
-|   |-- generation.py             intent/context value types
-|   |-- generation.yaml           default probabilistic profile
-|   |-- rendering.yaml            default visual profile
-|   `-- components/               generators, intent, questions, answers, display, renderer
+|-- application/                  composition root, benchmark catalog, local HTTP demo
+|-- domains/<domain>/
+|   |-- benchmark.py              thin provider/orchestration shell
+|   |-- questions.py              independently registered question implementations
+|   |-- distributions.py          domain default question distribution
+|   |-- ports.py                  active generator and representation boundaries
+|   |-- generation.py             generators or typed generation context/specification
+|   |-- analysis.py               exact validation and ground-truth analysis
+|   `-- registration.py           domain-owned container bindings
 `-- utils/                        shared implementation utilities
 ```
 
-The core protocols separate object generation, conditional generation, transformations, invariants,
-questions, representations, and composition. A new problem domain should preserve the same central
-boundary: the renderer receives a mathematical object but the object must not contain the answer or
-display-specific geometry. Exact answers should be computed independently of how the question is
-drawn.
+The core provides generic `QuestionCatalog`, `QuestionChoice`, and `QuestionDistribution` types and
+collects domain providers in an injected `BenchmarkCatalog`. Each domain defines the question
+protocol or base class appropriate to its lifecycle: surface and torus questions generate complete
+problems, while polyhedral questions build certified drafts from enumerated compatible foldings.
+Mathematical objects and the closed surface-morphism union remain immutable data rather than
+behavioral interfaces. Questions coordinate compatible generation, certification, wording, exact
+answers, and rendering. Configuration selects only stable registered IDs and probabilities, never
+Python import paths or dependency graphs. A new domain registers its provider, questions, default
+distribution, and collaborators at the composition root; renderers never receive hidden answers or
+answer-derived geometry.
 
 ## Dynamic evaluation pipeline
 
 The pipeline creates a new dataset at run time, optionally sends its public question sections to a model,
-and scores the returned answers. Copy `pipeline.example.yaml` and configure the run size, weighted
-domain mixture, internal generation levels, and optional question-kind mixture. Generation levels
+and scores the returned answers. Copy `config/pipeline.example.yaml` and configure the run size, weighted
+domain mixture, internal generation levels, and optional `recipes` mixture. Generation levels
 retain the existing generator controls but are deliberately absent from public examples and result
 tables: they are not presented as validated measurements of difficulty.
 
 Omit `run.seed` for an unpredictable 128-bit seed. The resolved seed is written to the private run
 manifest, so the run can later be reproduced by putting that value into the configuration. Item
-seeds are derived independently from the root seed and item position. Target question kinds use
-deterministic rejection sampling; an incompatible configuration fails with the kinds it actually
-observed instead of silently changing the requested distribution.
+seeds are derived independently from the root seed and item position. Target recipes are validated
+against the injected benchmark catalog before generation and dispatched directly. Unknown domains
+or recipe IDs therefore fail at startup rather than consuming a retry budget or silently changing
+the requested distribution.
 
 Generate a dataset without making API calls:
 
 ```powershell
-pixi run -e dev python -m topology_benchmark.pipeline pipeline.example.yaml --generate-only
+pixi run -e dev python -m topology_benchmark.pipeline config/pipeline.example.yaml --generate-only
 ```
 
 Run the configured provider and score its responses:
 
 ```powershell
-pixi run -e dev python -m topology_benchmark.pipeline pipeline.example.yaml
+pixi run -e dev python -m topology_benchmark.pipeline config/pipeline.example.yaml
 ```
 
 Each run has a content-derived identifier and writes a separate directory containing:

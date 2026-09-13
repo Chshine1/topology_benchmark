@@ -3,14 +3,17 @@ from random import Random
 
 import pytest
 
-from topology_benchmark import TorusSlicesBenchmark, build_container
+from topology_benchmark import build_container
 from topology_benchmark.core.models import GenerationRequest
 from topology_benchmark.domains.torus_slices import (
     EllipticTorus,
     RandomTorusSliceGenerator,
     RoundCircle,
     TorusFamilyAnalyzer,
+    TorusGenerationSpec,
 )
+from topology_benchmark.domains.torus_slices.benchmark import TorusSlicesBenchmark
+from topology_benchmark.domains.torus_slices.distributions import TorusDefaultQuestionDistribution
 
 
 def test_disk_intersection_computes_hopf_link_and_unlink() -> None:
@@ -26,8 +29,9 @@ def test_disk_intersection_computes_hopf_link_and_unlink() -> None:
 def test_generator_certifies_disjoint_tubes_and_reproducible_slices() -> None:
     generator = RandomTorusSliceGenerator(TorusFamilyAnalyzer())
     request = GenerationRequest(31, 9)
-    first = generator.generate(request, Random(31), count=4, linked=True)
-    second = generator.generate(request, Random(31), count=4, linked=True)
+    spec = TorusGenerationSpec(4, True, "pairs")
+    first = generator.generate(request, Random(31), spec)
+    second = generator.generate(request, Random(31), spec)
 
     assert first == second
     assert TorusFamilyAnalyzer.certify_disjoint(first.family)
@@ -49,9 +53,7 @@ def test_connected_chain_links_all_consecutive_tori() -> None:
     observation = generator.generate(
         GenerationRequest(17, 10),
         Random(17),
-        count=4,
-        linked=True,
-        link_pattern="chain",
+        TorusGenerationSpec(4, True, "chain"),
     )
 
     assert all(isinstance(torus, EllipticTorus) for torus in observation.family.tori)
@@ -63,9 +65,7 @@ def test_complete_hopf_link_has_every_pair_linked() -> None:
     observation = generator.generate(
         GenerationRequest(23, 10),
         Random(23),
-        count=4,
-        linked=True,
-        link_pattern="complete",
+        TorusGenerationSpec(4, True, "complete"),
     )
 
     assert len(TorusFamilyAnalyzer().linked_pairs(observation.family)) == 6
@@ -73,7 +73,8 @@ def test_complete_hopf_link_has_every_pair_linked() -> None:
 
 
 def test_scored_profile_does_not_emit_ambiguous_observation_puzzles() -> None:
-    kinds = {TorusSlicesBenchmark._question_kind(10, index / 100) for index in range(100)}
+    distribution = build_container().resolve(TorusDefaultQuestionDistribution)
+    kinds = {distribution.at(10).sample(Random(index)).id for index in range(100)}
 
     assert "slice-order" not in kinds
     assert "omitted-level-count" not in kinds
@@ -81,9 +82,11 @@ def test_scored_profile_does_not_emit_ambiguous_observation_puzzles() -> None:
 
 
 def test_benchmark_is_wired_and_hides_equations_and_core_circles() -> None:
-    benchmark = build_container().resolve(TorusSlicesBenchmark)
-    first = benchmark.generate(seed=8, difficulty=8)
-    second = benchmark.generate(seed=8, difficulty=8)
+    container = build_container()
+    benchmark = container.resolve(TorusSlicesBenchmark)
+    distribution = container.resolve(TorusDefaultQuestionDistribution).at(8)
+    first = benchmark.generate(request=GenerationRequest(8, 8), distribution=distribution)
+    second = benchmark.generate(request=GenerationRequest(8, 8), distribution=distribution)
 
     assert first == second
     assert first.question_kind in {"linked-pair-count", "completely-unlinked"}

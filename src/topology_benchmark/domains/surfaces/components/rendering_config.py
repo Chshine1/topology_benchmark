@@ -111,11 +111,13 @@ class _RenderingDocument(_StrictConfigModel):
     rendering: SurfaceRenderingConfig
 
 
-def load_rendering_config(override_path: str | Path | None = None) -> SurfaceRenderingConfig:
-    """Recursively overlay an optional file on the bundled defaults."""
+def load_rendering_config(
+    default_path: str | Path,
+    override_path: str | Path | None = None,
+) -> SurfaceRenderingConfig:
+    """Recursively overlay an optional file on the supplied defaults."""
 
-    default_path = Path(__file__).parent.parent / "rendering.yaml"
-    merged = _read_yaml(default_path)
+    merged = _read_yaml(Path(default_path))
     if override_path is not None:
         merged = _deep_merge(merged, _read_yaml(Path(override_path)))
     return _RenderingDocument.model_validate(merged).rendering

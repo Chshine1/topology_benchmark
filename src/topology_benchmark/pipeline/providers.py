@@ -2,7 +2,7 @@ import base64
 import json
 import os
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Protocol, override
 from urllib.request import Request, urlopen
 
 from topology_benchmark.core.models import QuestionSection
@@ -21,9 +21,11 @@ class FixedProvider(ModelProvider):
     response: str
 
     @property
+    @override
     def identity(self) -> str:
         return "fixed"
 
+    @override
     def answer(self, question: str, sections: tuple[QuestionSection, ...]) -> str:
         del question, sections
         return self.response
@@ -34,9 +36,11 @@ class OpenAICompatibleProvider(ModelProvider):
     config: ProviderConfig
 
     @property
+    @override
     def identity(self) -> str:
         return self.config.model
 
+    @override
     def answer(self, question: str, sections: tuple[QuestionSection, ...]) -> str:
         api_key = os.environ.get(self.config.api_key_env)
         if not api_key:

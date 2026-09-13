@@ -25,7 +25,6 @@ class Problem[AnswerT]:
 class GenerationRequest:
     seed: int
     difficulty: int = attrs_field(
-        default=1,
         validator=number_range(
             minimum=1,
             maximum=10,

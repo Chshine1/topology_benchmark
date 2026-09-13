@@ -1,13 +1,12 @@
 import math
-from dataclasses import dataclass
 from fractions import Fraction
 from random import Random
+from typing import override
 
+from topology_benchmark.core.errors import GenerationExhaustedError
 from topology_benchmark.core.models import GenerationRequest
-from topology_benchmark.core.protocols import ObjectGenerator
 from topology_benchmark.domains.polyhedral_nets.models import (
     EdgePair,
-    FaceCorner,
     NetEdge,
     Point2,
     Point3,
@@ -16,11 +15,7 @@ from topology_benchmark.domains.polyhedral_nets.models import (
     PolyhedralNet,
     Polyhedron3D,
 )
-
-
-@dataclass(frozen=True, slots=True)
-class PolyhedralNetIntent:
-    question_kind: str
+from topology_benchmark.domains.polyhedral_nets.ports import PolyhedralNetGenerator
 
 
 def _sub(first: Point3, second: Point3) -> Point3:
@@ -39,12 +34,11 @@ def _cross(first: Point3, second: Point3) -> Point3:
     )
 
 
-class RandomPolyhedralNetGenerator(ObjectGenerator[PolyhedralFolding]):
+class RandomPolyhedralNetGenerator(PolyhedralNetGenerator):
     """Generate planar developments from validated, exact-coordinate 3D sources."""
 
-    def generate(
-        self, request: GenerationRequest, rng: Random, *, marked_vertex: bool = False
-    ) -> PolyhedralFolding:
+    @override
+    def generate(self, request: GenerationRequest, rng: Random) -> PolyhedralFolding:
         families = [self._parallelepiped, self._triangular_prism]
         if request.difficulty >= 4:
             families.append(self._pyramid)
@@ -56,17 +50,8 @@ class RandomPolyhedralNetGenerator(ObjectGenerator[PolyhedralFolding]):
                 folding = self._unfold(source, rng)
             except ValueError:
                 continue
-            if marked_vertex:
-                net = folding.net
-                marked = FaceCorner(0, 0)
-                folding = PolyhedralFolding(
-                    PolyhedralNet(net.name, net.faces, net.hinges, marked),
-                    folding.seams,
-                    source,
-                    folding.root_face,
-                )
             return folding
-        raise RuntimeError("could not find a non-overlapping development")
+        raise GenerationExhaustedError("polyhedral-nets", "find a non-overlapping development", 40)
 
     def generate_isometry_pair(
         self, request: GenerationRequest, rng: Random, *, isometric: bool
@@ -86,7 +71,9 @@ class RandomPolyhedralNetGenerator(ObjectGenerator[PolyhedralFolding]):
                 first.source
             ) != self._source_signature(second.source):
                 return first, second
-        raise RuntimeError("could not generate distinct sources with matching face inventories")
+        raise GenerationExhaustedError(
+            "polyhedral-nets", "generate distinct sources with matching face inventories", 20
+        )
 
     @staticmethod
     def _source_signature(source: Polyhedron3D | None) -> tuple[object, ...]:

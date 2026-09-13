@@ -8,10 +8,9 @@ from pathlib import Path
 from random import Random
 from typing import Any
 
-from topology_benchmark.application.bootstrap import build_container
-from topology_benchmark.application.services import PolyhedralNetsBenchmark, SurfaceBenchmark
-from topology_benchmark.core.models import Problem
-from topology_benchmark.domains.torus_slices.benchmark import TorusSlicesBenchmark
+from topology_benchmark.application.catalog import BenchmarkCatalog
+from topology_benchmark.application.errors import InvalidApplicationRequestError
+from topology_benchmark.core.models import GenerationRequest, Problem
 from topology_benchmark.pipeline.config import PipelineConfig
 from topology_benchmark.pipeline.providers import ModelProvider, build_provider
 from topology_benchmark.pipeline.scoring import extract_final_answer, score_answer
@@ -25,10 +24,22 @@ class GeneratedItem:
 
 
 class BenchmarkPipeline:
-    def __init__(self, config: PipelineConfig) -> None:
+    def __init__(self, config: PipelineConfig, catalog: BenchmarkCatalog) -> None:
         self.config = config
+        self._catalog = catalog
+        self._validate_configuration()
+
+    def _validate_configuration(self) -> None:
+        for domain, config in self.config.domains.items():
+            self._catalog.validate_domain(domain)
+            for recipe in config.recipes:
+                self._catalog.validate_recipe(domain, recipe)
 
     def run(self, *, evaluate: bool = True) -> Path:
+        if evaluate and self.config.provider is None:
+            raise InvalidApplicationRequestError(
+                "evaluation requested but no provider is configured"
+            )
         root_seed = self.config.seed if self.config.seed is not None else secrets.randbits(128)
         identity = _manifest_config(self.config)
         identity["output_dir"] = "<excluded>"
@@ -44,18 +55,11 @@ class BenchmarkPipeline:
         manifest = self._manifest(root_seed, run_id, items)
         _write_json(run_dir / "manifest.private.json", manifest)
         if evaluate:
-            if self.config.provider is None:
-                raise ValueError("evaluation requested but no provider is configured")
+            assert self.config.provider is not None
             self._evaluate(run_dir, items, build_provider(self.config.provider))
         return run_dir
 
     def _generate(self, root_seed: int) -> tuple[GeneratedItem, ...]:
-        container = build_container()
-        providers = {
-            "surfaces": container.resolve(SurfaceBenchmark),
-            "polyhedral-nets": container.resolve(PolyhedralNetsBenchmark),
-            "torus-slices": container.resolve(TorusSlicesBenchmark),
-        }
         scheduler = Random(_derive_seed(root_seed, "schedule"))
         generated = []
         for index in range(self.config.size):
@@ -64,40 +68,19 @@ class BenchmarkPipeline:
             )
             domain_config = self.config.domains[domain]
             level = _weighted_choice(scheduler, domain_config.generation_levels)
-            target_kind = (
-                _weighted_choice(scheduler, domain_config.question_kinds)
-                if domain_config.question_kinds
-                else None
-            )
-            problem = self._matching_problem(
-                providers[domain], root_seed, index, domain, int(level), target_kind
-            )
+            seed = _derive_seed(root_seed, f"item:{index}:{domain}")
+            request = GenerationRequest(seed=seed, difficulty=int(level))
+            if domain_config.recipes:
+                problem = self._catalog.generate_recipe(
+                    domain=domain,
+                    request=request,
+                    recipe_id=_weighted_choice(scheduler, domain_config.recipes),
+                )
+            else:
+                problem = self._catalog.generate(domain=domain, request=request)
             item_id = _problem_id(index, domain, problem)
             generated.append(GeneratedItem(item_id, domain, problem))
         return tuple(generated)
-
-    def _matching_problem(
-        self,
-        provider: Any,
-        root_seed: int,
-        index: int,
-        domain: str,
-        level: int,
-        target_kind: str | None,
-    ) -> Problem[Any]:
-        observed: set[str] = set()
-        for attempt in range(self.config.max_generation_attempts):
-            seed = _derive_seed(root_seed, f"item:{index}:{domain}:{attempt}")
-            problem = provider.generate(seed=seed, difficulty=level)
-            kind = problem.question_kind
-            observed.add(kind)
-            if target_kind is None or kind == target_kind:
-                return problem
-        found = ", ".join(sorted(observed)) or "none"
-        raise RuntimeError(
-            f"could not generate question kind {target_kind!r} for {domain} at generation "
-            f"level {level}; observed: {found}"
-        )
 
     @staticmethod
     def _write_dataset(run_dir: Path, media_dir: Path, items: tuple[GeneratedItem, ...]) -> None:

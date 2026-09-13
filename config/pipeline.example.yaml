@@ -2,16 +2,15 @@ run:
   # Omit seed for a fresh, unpredictable run. The resolved seed is saved privately for replay.
   seed: 20260911
   size: 12
-  output_dir: benchmark-runs
+  output_dir: ../benchmark-runs
 
 generation:
-  max_attempts_per_item: 100
   domains:
     surfaces:
       weight: 2
       # These are internal generator controls, not reported as claims of difficulty.
       generation_levels: {4: 1, 7: 2, 10: 1}
-      question_kinds:
+      recipes:
         euler-characteristic: 1
         orientable: 1
         homology-groups: 1
@@ -19,7 +18,7 @@ generation:
     polyhedral-nets:
       weight: 2
       generation_levels: {7: 1, 10: 1}
-      question_kinds:
+      recipes:
         seam-match: 1
         vertex-partition: 1
         cell-distance: 1
@@ -27,7 +26,7 @@ generation:
     torus-slices:
       weight: 1
       generation_levels: {8: 1, 10: 1}
-      question_kinds:
+      recipes:
         completely-unlinked: 1
         linked-pair-count: 1
 

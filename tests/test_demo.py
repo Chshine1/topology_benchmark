@@ -1,12 +1,8 @@
 import json
 
-from topology_benchmark import (
-    PolyhedralNetsBenchmark,
-    SurfaceBenchmark,
-    TorusSlicesBenchmark,
-    build_container,
-)
+from topology_benchmark import BenchmarkCatalog, build_container
 from topology_benchmark.application.demo import DemoApplication
+from topology_benchmark.core.models import GenerationRequest
 from topology_benchmark.domains.polyhedral_nets.analysis import PolyhedralNetAnalyzer
 from topology_benchmark.domains.surfaces.analysis import SurfaceAnalyzer
 from topology_benchmark.domains.surfaces.components.generator import (
@@ -18,10 +14,10 @@ from topology_benchmark.domains.torus_slices.generation import RandomTorusSliceG
 
 
 def test_demo_serializes_any_problem_provider() -> None:
-    benchmark = build_container().resolve(SurfaceBenchmark)
-    demo = DemoApplication({"surfaces": benchmark}, "surfaces")
+    catalog = build_container().resolve(BenchmarkCatalog)
+    demo = DemoApplication(catalog, "surfaces")
 
-    payload = json.loads(demo.problem_json(seed=12, difficulty=7))
+    payload = json.loads(demo.problem_json(request=GenerationRequest(12, 7)))
 
     assert payload["seed"] == 12
     assert payload["question"]
@@ -42,21 +38,12 @@ def test_demo_page_has_regeneration_and_generic_media_rendering() -> None:
 
 def test_demo_can_switch_between_registered_domains() -> None:
     container = build_container()
-    surfaces = container.resolve(SurfaceBenchmark)
-    polyhedral_nets = container.resolve(PolyhedralNetsBenchmark)
-    torus_slices = container.resolve(TorusSlicesBenchmark)
-    demo = DemoApplication(
-        {
-            "surfaces": surfaces,
-            "polyhedral-nets": polyhedral_nets,
-            "torus-slices": torus_slices,
-        },
-        "surfaces",
-    )
+    demo = DemoApplication(container.resolve(BenchmarkCatalog), "surfaces")
 
-    surface = json.loads(demo.problem_json(seed=5, difficulty=4, domain="surfaces"))
-    net = json.loads(demo.problem_json(seed=5, difficulty=4, domain="polyhedral-nets"))
-    tori = json.loads(demo.problem_json(seed=5, difficulty=4, domain="torus-slices"))
+    request = GenerationRequest(5, 4)
+    surface = json.loads(demo.problem_json(request=request, domain="surfaces"))
+    net = json.loads(demo.problem_json(request=request, domain="polyhedral-nets"))
+    tori = json.loads(demo.problem_json(request=request, domain="torus-slices"))
 
     assert surface["question_kind"]
     assert net["question_kind"]

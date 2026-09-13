@@ -6,6 +6,10 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from topology_benchmark.core.probability import interpolate_anchors
+from topology_benchmark.domains.surfaces.generation import (
+    MorphismFamily,
+    MorphismFamilyAffinity,
+)
 
 type ConfigMap = dict[str, object]
 type Difficulty = Annotated[int, Field(ge=1, le=10)]
@@ -38,6 +42,8 @@ class DifficultyProfile(_StrictConfigModel):
     global_question_weight: AnchoredValue
     classification_question_weight: AnchoredValue
     path_question_weight: AnchoredValue
+    relational_question_weight: AnchoredValue
+    target_only_question_weight: AnchoredValue
     polygon_count_weights: dict[int, AnchoredValue]
     side_continuation: AnchoredValue
     gluing_density: AnchoredValue
@@ -52,14 +58,21 @@ class SurfaceGenerationConfig(_StrictConfigModel):
     retry_limit: int
     difficulty: DifficultyProfile
     object_questions: dict[str, tuple[tuple[str, float], ...]]
-    morphism_family_weights: dict[str, AnchoredValue]
-    morphism_affinity: dict[str, dict[str, float]]
+    subject_weights: dict[str, AnchoredValue]
+    morphism_questions: dict[str, tuple[tuple[str, float], ...]]
+    morphism_family_weights: dict[MorphismFamily, AnchoredValue]
+    morphism_affinity: dict[str, MorphismFamilyAffinity]
+
+    def affinity_for(self, question_id: str) -> MorphismFamilyAffinity:
+        return self.morphism_affinity.get(question_id, MorphismFamilyAffinity())
 
 
 class _QuestionFamilyWeights(_StrictConfigModel):
     global_: Anchors = Field(alias="global")
     classification: Anchors
     path: Anchors
+    relational: Anchors
+    target_only: Anchors = Field(alias="target-only")
 
 
 class _ScalarProfiles(_StrictConfigModel):
@@ -81,6 +94,26 @@ class _DifficultyInput(_StrictConfigModel):
 
 class _QuestionsInput(_StrictConfigModel):
     object: dict[str, dict[str, Nonnegative]]
+    morphism: dict[str, dict[str, Nonnegative]]
+
+    @model_validator(mode="after")
+    def _uses_known_nonempty_families(self) -> Self:
+        expected_object = {"global", "classification", "path"}
+        expected_morphism = {"relational", "target-only"}
+        if set(self.object) != expected_object or set(self.morphism) != expected_morphism:
+            raise ValueError("questions must configure every known subject family")
+        groups = (*self.object.values(), *self.morphism.values())
+        if any(not group or not any(group.values()) for group in groups):
+            raise ValueError("each question family needs a positive recipe weight")
+        ids = [recipe for group in groups for recipe in group]
+        if len(ids) != len(set(ids)):
+            raise ValueError("recipe IDs must be unique across question families")
+        return self
+
+
+class _SubjectsInput(_StrictConfigModel):
+    object: Anchors
+    morphism: Anchors
 
 
 class _MorphismsInput(_StrictConfigModel):
@@ -107,16 +140,29 @@ class _GenerationInput(_StrictConfigModel):
     retry_limit: Annotated[int, Field(ge=1)]
     difficulty: _DifficultyInput
     questions: _QuestionsInput
+    subjects: _SubjectsInput
     morphisms: _MorphismsInput
+
+    @model_validator(mode="after")
+    def _affinities_reference_registered_ids(self) -> Self:
+        recipes = {recipe for group in self.questions.morphism.values() for recipe in group}
+        families = set(self.morphisms.families)
+        if set(self.morphisms.affinity) - recipes:
+            raise ValueError("morphism affinity references an unknown recipe")
+        if any(set(weights) - families for weights in self.morphisms.affinity.values()):
+            raise ValueError("morphism affinity references an unknown family")
+        return self
 
 
 class _GenerationDocument(_StrictConfigModel):
     generation: _GenerationInput
 
 
-def load_generation_config(override_path: str | Path | None = None) -> SurfaceGenerationConfig:
-    default_path = Path(__file__).parent.parent / "generation.yaml"
-    merged = _read_yaml(default_path)
+def load_generation_config(
+    default_path: str | Path,
+    override_path: str | Path | None = None,
+) -> SurfaceGenerationConfig:
+    merged = _read_yaml(Path(default_path))
     if override_path is not None:
         merged = _deep_merge(merged, _read_yaml(Path(override_path)))
     source = _GenerationDocument.model_validate(merged).generation
@@ -130,6 +176,8 @@ def load_generation_config(override_path: str | Path | None = None) -> SurfaceGe
             global_question_weight=_anchored(question_weights.global_),
             classification_question_weight=_anchored(question_weights.classification),
             path_question_weight=_anchored(question_weights.path),
+            relational_question_weight=_anchored(question_weights.relational),
+            target_only_question_weight=_anchored(question_weights.target_only),
             polygon_count_weights={
                 count: _anchored(anchors)
                 for count, anchors in source.difficulty.polygon_count_weights.items()
@@ -143,10 +191,23 @@ def load_generation_config(override_path: str | Path | None = None) -> SurfaceGe
         object_questions={
             group: tuple(weights.items()) for group, weights in source.questions.object.items()
         },
-        morphism_family_weights={
-            family: _anchored(anchors) for family, anchors in source.morphisms.families.items()
+        subject_weights={
+            "object": _anchored(source.subjects.object),
+            "morphism": _anchored(source.subjects.morphism),
         },
-        morphism_affinity=source.morphisms.affinity,
+        morphism_questions={
+            group: tuple(weights.items()) for group, weights in source.questions.morphism.items()
+        },
+        morphism_family_weights={
+            MorphismFamily(family): _anchored(anchors)
+            for family, anchors in source.morphisms.families.items()
+        },
+        morphism_affinity={
+            recipe: MorphismFamilyAffinity(
+                **{family.replace("-", "_"): weight for family, weight in family_weights.items()}
+            )
+            for recipe, family_weights in source.morphisms.affinity.items()
+        },
     )
 
 

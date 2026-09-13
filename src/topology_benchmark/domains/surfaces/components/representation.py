@@ -1,5 +1,6 @@
 import io
 from random import Random
+from typing import override
 
 from matplotlib import rc_context
 from matplotlib.axes import Axes
@@ -29,6 +30,7 @@ class MatplotlibGluingDiagramRenderer(SurfaceRepresentation):
         self._planner = planner
         self._config = config
 
+    @override
     def render(
         self,
         obj: SurfacePresentation,
