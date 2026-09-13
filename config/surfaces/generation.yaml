@@ -1,7 +1,8 @@
 generation:
-  profile_version: "surface-v5"
+  profile_version: "surface-v7"
   noise_probability: 0.075
   retry_limit: 250
+  morphism_retry_limit: 40
 
   subjects:
     object: {1: 0.95, 4: 0.90, 7: 0.82, 10: 0.75}
@@ -49,6 +50,29 @@ generation:
       target-only:
         target-homology: 1.0
         target-orientable: 1.0
+
+  # Each object recipe selects a semantic outcome before any presentation is
+  # constructed. Outcome weights form a joint distribution, so properties such
+  # as path count and closure can be correlated without generator-side modes.
+  object_laws:
+    euler-characteristic: &ordinary_surface_law
+      no-path: {weight: 0.925, component_count: 1, paths: {kind: none}}
+      closed-incidental-path: {weight: 0.0375, component_count: 1, paths: {kind: distinguished, count: 1, first_closed: true}}
+      open-incidental-path: {weight: 0.0375, component_count: 1, paths: {kind: distinguished, count: 1, first_closed: false}}
+    boundary-components: *ordinary_surface_law
+    connected-components:
+      one-component: {weight: 0.35, component_count: 1, paths: {kind: none}}
+      two-components: {weight: 1.0, component_count: 2, paths: {kind: none}}
+      three-components: {weight: 0.25, component_count: 3, paths: {kind: none}}
+    orientable: *ordinary_surface_law
+    homology-groups: *ordinary_surface_law
+    path-is-cycle:
+      one-closed: {weight: 0.50875, component_count: 1, paths: {kind: distinguished, count: 1, first_closed: true}}
+      one-open: {weight: 0.41625, component_count: 1, paths: {kind: distinguished, count: 1, first_closed: false}}
+      two-first-closed: {weight: 0.04125, component_count: 1, paths: {kind: distinguished, count: 2, first_closed: true}}
+      two-first-open: {weight: 0.03375, component_count: 1, paths: {kind: distinguished, count: 2, first_closed: false}}
+    path-representative:
+      nontrivial-representative: {weight: 1.0, component_count: 1, paths: {kind: nontrivial-homology}}
   morphisms:
     families:
       full-disk-boundary: {1: 0.35, 4: 0.18, 7: 0.06, 10: 0.02}
@@ -57,8 +81,11 @@ generation:
       self-boundary: {1: 0.08, 4: 0.18, 7: 0.30, 10: 0.35}
       annulus-closure: {1: 0.02, 4: 0.04, 7: 0.09, 10: 0.13}
     affinity:
-      boundary-change: {partial-intercomponent: 3.0, self-boundary: 3.0}
-      component-change: {partial-intercomponent: 4.0, full-disk-boundary: 2.0}
-      map-injective: {attachment: 4.0}
-      map-surjective: {partial-intercomponent: 2.0, self-boundary: 2.0, annulus-closure: 2.0}
-      homology-isomorphism: {attachment: 2.0, self-boundary: 2.0, annulus-closure: 2.0}
+      euler-change: &neutral_morphism_affinity {full-disk-boundary: 1.0, attachment: 1.0, partial-intercomponent: 1.0, self-boundary: 1.0, annulus-closure: 1.0}
+      boundary-change: {full-disk-boundary: 1.0, attachment: 1.0, partial-intercomponent: 3.0, self-boundary: 3.0, annulus-closure: 1.0}
+      component-change: {full-disk-boundary: 2.0, attachment: 1.0, partial-intercomponent: 4.0, self-boundary: 1.0, annulus-closure: 1.0}
+      target-homology: *neutral_morphism_affinity
+      map-injective: {full-disk-boundary: 1.0, attachment: 4.0, partial-intercomponent: 1.0, self-boundary: 1.0, annulus-closure: 1.0}
+      map-surjective: {full-disk-boundary: 1.0, attachment: 1.0, partial-intercomponent: 2.0, self-boundary: 2.0, annulus-closure: 2.0}
+      homology-isomorphism: {full-disk-boundary: 1.0, attachment: 2.0, partial-intercomponent: 1.0, self-boundary: 2.0, annulus-closure: 2.0}
+      target-orientable: *neutral_morphism_affinity

@@ -4,14 +4,9 @@ from typing import override
 from topology_benchmark.core.models import GenerationRequest, Problem
 from topology_benchmark.core.probability import SamplingSession
 from topology_benchmark.core.protocols import ProblemRecipe
-from topology_benchmark.domains.surfaces.analysis import SurfaceAnalyzer
-from topology_benchmark.domains.surfaces.components.generation_config import SurfaceGenerationConfig
-from topology_benchmark.domains.surfaces.components.invariant import integral_homology
-from topology_benchmark.domains.surfaces.generation import (
-    PathGenerationMode,
-    QuestionFocus,
+from topology_benchmark.domains.surfaces.generation.config import SurfaceGenerationConfig
+from topology_benchmark.domains.surfaces.generation.context.object import (
     SurfaceObjectGenerationContext,
-    SurfaceObjectGenerationSpec,
 )
 from topology_benchmark.domains.surfaces.models import (
     EdgeRef,
@@ -22,13 +17,12 @@ from topology_benchmark.domains.surfaces.ports import (
     SurfaceGenerator,
     SurfaceRepresentation,
 )
+from topology_benchmark.domains.surfaces.questions.answers import integral_homology
+from topology_benchmark.domains.surfaces.services import SurfaceAnalyzer
 
 
 class SurfaceObjectQuestion(ProblemRecipe[SurfaceAnswer], ABC):
     id = ""
-    focus = QuestionFocus.GLOBAL
-    path_mode = PathGenerationMode.NONE
-    favor_multiple_polygons = False
 
     def __init__(
         self,
@@ -41,17 +35,14 @@ class SurfaceObjectQuestion(ProblemRecipe[SurfaceAnswer], ABC):
         self._representation = representation
         self._analyzer = analyzer
         self._config = config
+        self._object_law = config.object_law_for(self.id)
 
     @override
     def generate(self, request: GenerationRequest) -> Problem[SurfaceAnswer]:
         sampling = SamplingSession(request.seed, self._config.profile_version)
         context = SurfaceObjectGenerationContext(
             request,
-            SurfaceObjectGenerationSpec(
-                self.focus,
-                self.path_mode,
-                self.favor_multiple_polygons,
-            ),
+            self._object_law,
             sampling,
         )
         surface = self._generator.generate_for(context)
@@ -105,7 +96,6 @@ class BoundaryComponentsQuestion(SurfaceObjectQuestion):
 
 class ConnectedComponentsQuestion(SurfaceObjectQuestion):
     id = "connected-components"
-    favor_multiple_polygons = True
 
     @override
     def _question(self, _surface: SurfacePresentation, /) -> str:
@@ -118,7 +108,6 @@ class ConnectedComponentsQuestion(SurfaceObjectQuestion):
 
 class OrientableQuestion(SurfaceObjectQuestion):
     id = "orientable"
-    focus = QuestionFocus.CLASSIFICATION
 
     @override
     def _question(self, _surface: SurfacePresentation, /) -> str:
@@ -131,7 +120,6 @@ class OrientableQuestion(SurfaceObjectQuestion):
 
 class HomologyGroupsQuestion(SurfaceObjectQuestion):
     id = "homology-groups"
-    focus = QuestionFocus.CLASSIFICATION
 
     @override
     def _question(self, _surface: SurfacePresentation, /) -> str:
@@ -144,8 +132,6 @@ class HomologyGroupsQuestion(SurfaceObjectQuestion):
 
 class PathIsCycleQuestion(SurfaceObjectQuestion):
     id = "path-is-cycle"
-    focus = QuestionFocus.PATH
-    path_mode = PathGenerationMode.CYCLE_TEST
 
     @override
     def _question(self, surface: SurfacePresentation, /) -> str:
@@ -158,8 +144,6 @@ class PathIsCycleQuestion(SurfaceObjectQuestion):
 
 class PathRepresentativeQuestion(SurfaceObjectQuestion):
     id = "path-representative"
-    focus = QuestionFocus.PATH
-    path_mode = PathGenerationMode.REPRESENTATIVE
 
     @override
     def _question(self, surface: SurfacePresentation, /) -> str:

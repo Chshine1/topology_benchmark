@@ -16,14 +16,10 @@ from topology_benchmark.domains.polyhedral_nets.distributions import (
 )
 from topology_benchmark.domains.polyhedral_nets.registration import add_polyhedral_nets_domain
 from topology_benchmark.domains.surfaces.benchmark import SurfaceBenchmark, SurfaceQuestionCatalog
-from topology_benchmark.domains.surfaces.components.generation_config import (
-    load_generation_config,
-)
-from topology_benchmark.domains.surfaces.components.rendering_config import (
-    load_rendering_config,
-)
 from topology_benchmark.domains.surfaces.distributions import SurfaceDefaultQuestionDistribution
+from topology_benchmark.domains.surfaces.generation.config import load_generation_config
 from topology_benchmark.domains.surfaces.registration import add_surface_domain
+from topology_benchmark.domains.surfaces.rendering.config import load_rendering_config
 from topology_benchmark.domains.torus_slices.benchmark import (
     TorusQuestionCatalog,
     TorusSlicesBenchmark,

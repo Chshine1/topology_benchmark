@@ -346,13 +346,22 @@ config/
 src/topology_benchmark/
 |-- core/                         shared Problem types, protocols, probability, recipes
 |-- application/                  composition root, benchmark catalog, local HTTP demo
-|-- domains/<domain>/
+|-- domains/surfaces/
 |   |-- benchmark.py              thin provider/orchestration shell
-|   |-- questions.py              independently registered question implementations
 |   |-- distributions.py          domain default question distribution
+|   |-- generation/
+|   |   |-- config.py             typed generation configuration and loader
+|   |   |-- context/              semantic conditions and contexts by subject
+|   |   |   |-- object.py
+|   |   |   `-- morphism.py
+|   |   `-- generator/            realization services by subject
+|   |       |-- object.py
+|   |       `-- morphism.py
+|   |-- models/                    immutable surface objects, morphisms, and facts
+|   |-- questions/                independently registered question implementations
+|   |-- rendering/                rendering config, diagram planning, and renderer
+|   |-- services/                 explicitly named services such as surface_analyzer.py
 |   |-- ports.py                  active generator and representation boundaries
-|   |-- generation.py             generators or typed generation context/specification
-|   |-- analysis.py               exact validation and ground-truth analysis
 |   `-- registration.py           domain-owned container bindings
 `-- utils/                        shared implementation utilities
 ```
@@ -367,6 +376,15 @@ answers, and rendering. Configuration selects only stable registered IDs and pro
 Python import paths or dependency graphs. A new domain registers its provider, questions, default
 distribution, and collaborators at the composition root; renderers never receive hidden answers or
 answer-derived geometry.
+
+Surface object recipes carry configured finite laws over semantic outcomes such as component count,
+path count, path closure, and nontrivial homology. The surface generator realizes the selected outcome
+without inspecting a question ID or interpreting question-category flags. Because these laws are
+finite distributions, callers can compute their exact pushforwards, conditional probabilities, and
+expectations in addition to sampling presentations from them.
+Morphism recipes follow the same lifecycle: configuration resolves a difficulty-aware finite law
+over morphism conditions, and the generator realizes the selected family without applying
+question-specific affinities or changing families on retry exhaustion.
 
 ## Dynamic evaluation pipeline
 

@@ -11,10 +11,8 @@ from topology_benchmark.core.probability import (
     FiniteDistribution,
     WeightedValue,
 )
-from topology_benchmark.domains.surfaces.components.rendering_config import (
-    load_rendering_config,
-)
 from topology_benchmark.domains.surfaces.models import Polygon, SurfacePresentation
+from topology_benchmark.domains.surfaces.rendering.config import load_rendering_config
 from topology_benchmark.pipeline.config import load_pipeline_config
 
 
@@ -36,6 +34,28 @@ def test_finite_distribution_requires_a_positive_member() -> None:
     distribution = FiniteDistribution((WeightedValue("a", 0.0), WeightedValue("b", 1.0)))
 
     assert distribution.values[-1].value == "b"
+
+
+def test_finite_distribution_composes_and_conditions_exactly() -> None:
+    outer = FiniteDistribution((WeightedValue("a", 1.0), WeightedValue("b", 3.0)))
+
+    joint = outer.bind(
+        lambda value: FiniteDistribution(
+            (
+                WeightedValue((value, False), 1.0),
+                WeightedValue((value, True), 1.0),
+            )
+        )
+    )
+    conditioned = joint.condition(lambda outcome: outcome[1])
+
+    assert outer.expectation(lambda value: {"a": 1.0, "b": 5.0}[value]) == 4.0
+    assert joint.probability(lambda outcome: outcome == ("b", True)) == 0.375
+    assert (
+        conditioned.map(lambda outcome: outcome[0]).probability(lambda value: value == "b") == 0.75
+    )
+    with pytest.raises(ValueError, match="zero probability"):
+        outer.condition(lambda _value: False)
 
 
 def test_attrs_models_are_frozen_and_generated_init_runs_invariants() -> None:

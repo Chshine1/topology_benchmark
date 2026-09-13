@@ -4,11 +4,12 @@ from typing import Protocol, override
 from topology_benchmark.core.models import GenerationRequest, QuestionSection
 from topology_benchmark.core.protocols import (
     ConditionalGenerator,
-    ObjectGenerator,
     Representation,
 )
-from topology_benchmark.domains.surfaces.generation import (
+from topology_benchmark.domains.surfaces.generation.context.morphism import (
     SurfaceMorphismGenerationContext,
+)
+from topology_benchmark.domains.surfaces.generation.context.object import (
     SurfaceObjectGenerationContext,
 )
 from topology_benchmark.domains.surfaces.models import EdgeRef, SurfaceMorphism, SurfacePresentation
@@ -17,7 +18,6 @@ type SurfaceAnswer = int | str | bool | tuple[int, ...]
 
 
 class SurfaceGenerator(
-    ObjectGenerator[SurfacePresentation],
     ConditionalGenerator[SurfaceObjectGenerationContext, SurfacePresentation],
     Protocol,
 ):
@@ -25,7 +25,6 @@ class SurfaceGenerator(
 
 
 class SurfaceMorphismGenerator(
-    ObjectGenerator[SurfaceMorphism],
     ConditionalGenerator[SurfaceMorphismGenerationContext, SurfaceMorphism],
     Protocol,
 ):

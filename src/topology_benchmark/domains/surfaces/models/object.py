@@ -87,12 +87,12 @@ class SurfacePresentation:
             used.update((gluing.first, gluing.second))
             labels.add(gluing.label)
 
-        quotient_vertices = self._quotient_vertices()
+        quotient_vertices = self.quotient_vertices()
         for path in self.paths:
             for directed in path.edges:
                 self._validate_edge(directed.edge)
             for first, second in zip(path.edges, path.edges[1:], strict=False):
-                if self._path_endpoint(first, False, quotient_vertices) != self._path_endpoint(
+                if self.path_endpoint(first, False, quotient_vertices) != self.path_endpoint(
                     second, True, quotient_vertices
                 ):
                     raise ValueError("neighboring path edges are not connected in the quotient")
@@ -110,7 +110,7 @@ class SurfacePresentation:
             result.append(result[-1] + polygon.sides)
         return tuple(result)
 
-    def _quotient_vertices(self) -> tuple[int, ...]:
+    def quotient_vertices(self) -> tuple[int, ...]:
         offsets = self.vertex_offsets()
         dsu = DisjointSet(offsets[-1])
         for gluing in self.gluings:
@@ -133,7 +133,7 @@ class SurfacePresentation:
         end = offsets[edge.polygon] + ((edge.edge + 1) % self.polygons[edge.polygon].sides)
         return start, end
 
-    def _path_endpoint(
+    def path_endpoint(
         self, directed: OrientedEdge, start: bool, quotient_vertices: tuple[int, ...]
     ) -> int:
         native_start, native_end = self.native_edge_vertices(directed.edge)

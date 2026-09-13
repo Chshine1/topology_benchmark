@@ -14,25 +14,26 @@ from topology_benchmark.core.probability import (
     WeightedValue,
     interpolate_anchors,
 )
-from topology_benchmark.domains.surfaces.analysis import SurfaceAnalyzer
 from topology_benchmark.domains.surfaces.benchmark import SurfaceBenchmark
-from topology_benchmark.domains.surfaces.components.generation_config import (
+from topology_benchmark.domains.surfaces.distributions import SurfaceDefaultQuestionDistribution
+from topology_benchmark.domains.surfaces.generation.config import (
     SurfaceGenerationConfig,
     load_generation_config,
 )
-from topology_benchmark.domains.surfaces.components.generator import (
+from topology_benchmark.domains.surfaces.generation.context.object import (
+    DistinguishedSurfacePaths,
+    NoSurfacePaths,
+    SurfaceObjectCondition,
+    SurfaceObjectGenerationContext,
+)
+from topology_benchmark.domains.surfaces.generation.generator.morphism import (
     RandomSurfaceMorphismGenerator,
+)
+from topology_benchmark.domains.surfaces.generation.generator.object import (
     RandomSurfacePresentationGenerator,
 )
-from topology_benchmark.domains.surfaces.distributions import SurfaceDefaultQuestionDistribution
-from topology_benchmark.domains.surfaces.generation import (
-    PathGenerationMode,
-    QuestionFocus,
-    SurfaceMorphismGenerationContext,
-    SurfaceObjectGenerationContext,
-    SurfaceObjectGenerationSpec,
-)
 from topology_benchmark.domains.surfaces.ports import SurfaceGenerator, SurfaceMorphismGenerator
+from topology_benchmark.domains.surfaces.services import SurfaceAnalyzer
 
 
 def test_named_random_streams_are_reproducible_and_independent() -> None:
@@ -88,24 +89,18 @@ def test_paths_are_question_aligned_but_allow_low_rate_noise() -> None:
     for seed in range(cohort_size):
         request = GenerationRequest(seed, 7)
         sampling = SamplingSession(seed, config.profile_version)
-        spec = SurfaceObjectGenerationSpec(
-            QuestionFocus.GLOBAL,
-            favor_multiple_polygons=True,
-        )
-        surface = generator.generate_for(SurfaceObjectGenerationContext(request, spec, sampling))
+        law = config.object_law_for("euler-characteristic")
+        surface = generator.generate_for(SurfaceObjectGenerationContext(request, law, sampling))
         incidental += bool(surface.paths)
         assert all(len(path.edges) <= 7 for path in surface.paths)
         assert sum(len(path.edges) for path in surface.paths) <= 7
 
-    path_spec = SurfaceObjectGenerationSpec(
-        QuestionFocus.PATH,
-        path_mode=PathGenerationMode.REPRESENTATIVE,
-    )
+    path_law = config.object_law_for("path-representative")
     request = GenerationRequest(99, 10)
     surface = generator.generate_for(
         SurfaceObjectGenerationContext(
             request,
-            path_spec,
+            path_law,
             SamplingSession(request.seed, config.profile_version),
         )
     )
@@ -116,17 +111,40 @@ def test_paths_are_question_aligned_but_allow_low_rate_noise() -> None:
     assert sum(len(path.edges) for path in surface.paths) <= 7
 
 
+def test_surface_laws_support_exact_semantic_computation() -> None:
+    config = load_generation_config(SURFACE_GENERATION_DEFAULTS)
+    cycle_law = config.object_law_for("path-is-cycle")
+
+    assert cycle_law.probability(
+        lambda outcome: isinstance(outcome.paths, DistinguishedSurfacePaths)
+        and outcome.paths.count == 2
+    ) == pytest.approx(0.075)
+    assert cycle_law.probability(
+        lambda outcome: isinstance(outcome.paths, DistinguishedSurfacePaths)
+        and outcome.paths.first_closed
+    ) == pytest.approx(0.55)
+    assert cycle_law.map(
+        lambda outcome: isinstance(outcome.paths, DistinguishedSurfacePaths)
+        and outcome.paths.first_closed
+    ).probability(lambda closed: closed) == pytest.approx(0.55)
+
+
+def test_surface_conditions_validate_positive_counts_on_attrs_fields() -> None:
+    with pytest.raises(ValueError, match="component count"):
+        SurfaceObjectCondition(0, NoSurfacePaths())
+    with pytest.raises(ValueError, match="path count"):
+        DistinguishedSurfacePaths(0, False)
+
+
 def test_simple_two_disk_spheres_are_rare_at_high_difficulty() -> None:
     config = load_generation_config(SURFACE_GENERATION_DEFAULTS)
-    generator = RandomSurfaceMorphismGenerator(config, SurfaceAnalyzer())
     families: Counter[str] = Counter()
     for seed in range(1000):
         request = GenerationRequest(seed, 10)
         sampling = SamplingSession(seed, config.profile_version)
-        context = SurfaceMorphismGenerationContext(
-            request, config.affinity_for("boundary-change"), sampling
-        )
-        families[generator._family(context).value] += 1
+        law = config.morphism_law_for("boundary-change").at(request.difficulty)
+        condition = sampling.sample("morphism.condition", law)
+        families[condition.family_id] += 1
 
     assert families["full-disk-boundary"] < 0.05 * 1000
     assert len(families) == 5

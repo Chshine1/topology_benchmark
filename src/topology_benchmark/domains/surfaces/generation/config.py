@@ -1,14 +1,30 @@
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Annotated, Self, cast
+from typing import Annotated, Literal, Self, cast
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from topology_benchmark.core.probability import interpolate_anchors
-from topology_benchmark.domains.surfaces.generation import (
-    MorphismFamily,
-    MorphismFamilyAffinity,
+from topology_benchmark.core.probability import (
+    FiniteDistribution,
+    WeightedValue,
+    blended_weight,
+    interpolate_anchors,
+)
+from topology_benchmark.domains.surfaces.generation.context.morphism import (
+    AnnulusClosureCondition,
+    AttachmentCondition,
+    FullDiskBoundaryCondition,
+    PartialIntercomponentCondition,
+    SelfBoundaryCondition,
+    SurfaceMorphismCondition,
+)
+from topology_benchmark.domains.surfaces.generation.context.object import (
+    DistinguishedSurfacePaths,
+    NontrivialHomologySurfacePath,
+    NoSurfacePaths,
+    SurfaceObjectCondition,
+    SurfacePathCondition,
 )
 
 type ConfigMap = dict[str, object]
@@ -20,6 +36,13 @@ type PathMaximum = Annotated[float, Field(ge=1, le=7)]
 type Anchors = Annotated[dict[Difficulty, Nonnegative], Field(min_length=1)]
 type ProbabilityAnchors = Annotated[dict[Difficulty, Probability], Field(min_length=1)]
 type PathMaximumAnchors = Annotated[dict[Difficulty, PathMaximum], Field(min_length=1)]
+type MorphismFamilyId = Literal[
+    "full-disk-boundary",
+    "attachment",
+    "partial-intercomponent",
+    "self-boundary",
+    "annulus-closure",
+]
 
 
 class _StrictConfigModel(BaseModel):
@@ -52,19 +75,95 @@ class DifficultyProfile(_StrictConfigModel):
     visual_budget: AnchoredValue
 
 
+class NoSurfacePathsConfig(_StrictConfigModel):
+    kind: Literal["none"]
+
+
+class DistinguishedSurfacePathsConfig(_StrictConfigModel):
+    kind: Literal["distinguished"]
+    count: Annotated[int, Field(ge=1, le=2)]
+    first_closed: bool
+
+
+class NontrivialHomologySurfacePathConfig(_StrictConfigModel):
+    kind: Literal["nontrivial-homology"]
+
+
+type SurfacePathsConfig = Annotated[
+    NoSurfacePathsConfig | DistinguishedSurfacePathsConfig | NontrivialHomologySurfacePathConfig,
+    Field(discriminator="kind"),
+]
+
+
+class SurfaceObjectOutcomeConfig(_StrictConfigModel):
+    weight: Nonnegative
+    component_count: Annotated[int, Field(ge=1, le=4)]
+    paths: SurfacePathsConfig
+
+
+class MorphismLawChoice(_StrictConfigModel):
+    family: MorphismFamilyId
+    weights: AnchoredValue
+    affinity: Nonnegative
+
+
+class SurfaceMorphismLawProfile(_StrictConfigModel):
+    choices: tuple[MorphismLawChoice, ...]
+    noise_probability: Probability
+
+    def at(self, difficulty: int) -> FiniteDistribution[SurfaceMorphismCondition]:
+        return FiniteDistribution(
+            tuple(
+                WeightedValue(
+                    _morphism_condition(choice.family),
+                    blended_weight(
+                        choice.weights.at(difficulty) * choice.affinity,
+                        choice.weights.at(difficulty),
+                        self.noise_probability,
+                    ),
+                )
+                for choice in self.choices
+            )
+        )
+
+
 class SurfaceGenerationConfig(_StrictConfigModel):
     profile_version: str
     noise_probability: float
     retry_limit: int
+    morphism_retry_limit: int
     difficulty: DifficultyProfile
     object_questions: dict[str, tuple[tuple[str, float], ...]]
+    object_laws: dict[str, tuple[SurfaceObjectOutcomeConfig, ...]]
     subject_weights: dict[str, AnchoredValue]
     morphism_questions: dict[str, tuple[tuple[str, float], ...]]
-    morphism_family_weights: dict[MorphismFamily, AnchoredValue]
-    morphism_affinity: dict[str, MorphismFamilyAffinity]
+    morphism_laws: dict[str, SurfaceMorphismLawProfile]
 
-    def affinity_for(self, question_id: str) -> MorphismFamilyAffinity:
-        return self.morphism_affinity.get(question_id, MorphismFamilyAffinity())
+    def object_law_for(self, question_id: str) -> FiniteDistribution[SurfaceObjectCondition]:
+        try:
+            outcomes = self.object_laws[question_id]
+        except KeyError as error:
+            raise ValueError(f"no surface-object law is configured for {question_id!r}") from error
+        return FiniteDistribution(
+            tuple(
+                WeightedValue(
+                    SurfaceObjectCondition(
+                        outcome.component_count,
+                        _surface_paths(outcome.paths),
+                    ),
+                    outcome.weight,
+                )
+                for outcome in outcomes
+            )
+        )
+
+    def morphism_law_for(self, question_id: str) -> SurfaceMorphismLawProfile:
+        try:
+            return self.morphism_laws[question_id]
+        except KeyError as error:
+            raise ValueError(
+                f"no surface-morphism law is configured for {question_id!r}"
+            ) from error
 
 
 class _QuestionFamilyWeights(_StrictConfigModel):
@@ -117,8 +216,8 @@ class _SubjectsInput(_StrictConfigModel):
 
 
 class _MorphismsInput(_StrictConfigModel):
-    families: dict[str, Anchors]
-    affinity: dict[str, dict[str, Nonnegative]]
+    families: dict[MorphismFamilyId, Anchors]
+    affinity: dict[str, dict[MorphismFamilyId, Nonnegative]]
 
     @model_validator(mode="after")
     def _has_every_family(self) -> Self:
@@ -138,19 +237,33 @@ class _GenerationInput(_StrictConfigModel):
     profile_version: Annotated[str, Field(min_length=1)]
     noise_probability: Probability
     retry_limit: Annotated[int, Field(ge=1)]
+    morphism_retry_limit: Annotated[int, Field(ge=1)]
     difficulty: _DifficultyInput
     questions: _QuestionsInput
+    object_laws: dict[str, dict[str, SurfaceObjectOutcomeConfig]]
     subjects: _SubjectsInput
     morphisms: _MorphismsInput
 
     @model_validator(mode="after")
-    def _affinities_reference_registered_ids(self) -> Self:
+    def _has_complete_morphism_laws(self) -> Self:
         recipes = {recipe for group in self.questions.morphism.values() for recipe in group}
         families = set(self.morphisms.families)
-        if set(self.morphisms.affinity) - recipes:
-            raise ValueError("morphism affinity references an unknown recipe")
-        if any(set(weights) - families for weights in self.morphisms.affinity.values()):
-            raise ValueError("morphism affinity references an unknown family")
+        if set(self.morphisms.affinity) != recipes:
+            raise ValueError("morphism affinities must configure every morphism question ID")
+        if any(set(weights) != families for weights in self.morphisms.affinity.values()):
+            raise ValueError("each morphism affinity must configure every morphism family")
+        return self
+
+    @model_validator(mode="after")
+    def _has_a_nonempty_law_for_every_object_question(self) -> Self:
+        recipes = {recipe for group in self.questions.object.values() for recipe in group}
+        if set(self.object_laws) != recipes:
+            raise ValueError("object laws must configure every object question ID")
+        if any(
+            not outcomes or not any(item.weight for item in outcomes.values())
+            for outcomes in self.object_laws.values()
+        ):
+            raise ValueError("each surface-object law needs positive total weight")
         return self
 
 
@@ -172,6 +285,7 @@ def load_generation_config(
         profile_version=source.profile_version,
         noise_probability=source.noise_probability,
         retry_limit=source.retry_limit,
+        morphism_retry_limit=source.morphism_retry_limit,
         difficulty=DifficultyProfile(
             global_question_weight=_anchored(question_weights.global_),
             classification_question_weight=_anchored(question_weights.classification),
@@ -191,6 +305,10 @@ def load_generation_config(
         object_questions={
             group: tuple(weights.items()) for group, weights in source.questions.object.items()
         },
+        object_laws={
+            question_id: tuple(outcomes.values())
+            for question_id, outcomes in source.object_laws.items()
+        },
         subject_weights={
             "object": _anchored(source.subjects.object),
             "morphism": _anchored(source.subjects.morphism),
@@ -198,17 +316,39 @@ def load_generation_config(
         morphism_questions={
             group: tuple(weights.items()) for group, weights in source.questions.morphism.items()
         },
-        morphism_family_weights={
-            MorphismFamily(family): _anchored(anchors)
-            for family, anchors in source.morphisms.families.items()
-        },
-        morphism_affinity={
-            recipe: MorphismFamilyAffinity(
-                **{family.replace("-", "_"): weight for family, weight in family_weights.items()}
+        morphism_laws={
+            recipe: SurfaceMorphismLawProfile(
+                choices=tuple(
+                    MorphismLawChoice(
+                        family=family,
+                        weights=_anchored(source.morphisms.families[family]),
+                        affinity=affinity,
+                    )
+                    for family, affinity in family_affinities.items()
+                ),
+                noise_probability=source.noise_probability,
             )
-            for recipe, family_weights in source.morphisms.affinity.items()
+            for recipe, family_affinities in source.morphisms.affinity.items()
         },
     )
+
+
+def _surface_paths(value: SurfacePathsConfig) -> SurfacePathCondition:
+    if isinstance(value, NoSurfacePathsConfig):
+        return NoSurfacePaths()
+    if isinstance(value, DistinguishedSurfacePathsConfig):
+        return DistinguishedSurfacePaths(value.count, value.first_closed)
+    return NontrivialHomologySurfacePath()
+
+
+def _morphism_condition(family: MorphismFamilyId) -> SurfaceMorphismCondition:
+    return {
+        "full-disk-boundary": FullDiskBoundaryCondition(),
+        "attachment": AttachmentCondition(),
+        "partial-intercomponent": PartialIntercomponentCondition(),
+        "self-boundary": SelfBoundaryCondition(),
+        "annulus-closure": AnnulusClosureCondition(),
+    }[family]
 
 
 def _anchored(values: Mapping[int, float]) -> AnchoredValue:

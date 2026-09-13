@@ -1,63 +1,15 @@
-from dataclasses import dataclass
 from math import gcd
 
 from topology_benchmark.domains.surfaces.models import (
+    CellularHomology,
+    ComponentFacts,
     EdgeGluing,
     EdgeRef,
+    SurfaceFacts,
     SurfacePath,
     SurfacePresentation,
 )
 from topology_benchmark.utils import DisjointSet
-
-
-@dataclass(frozen=True, slots=True)
-class ComponentFacts:
-    polygons: tuple[int, ...]
-    orientable: bool
-    euler_characteristic: int
-    boundary_components: int
-    genus: int
-
-    @property
-    def first_betti_number(self) -> int:
-        if self.orientable:
-            return 2 * self.genus + max(0, self.boundary_components - 1)
-        return self.genus - 1 + self.boundary_components
-
-
-@dataclass(frozen=True, slots=True)
-class SurfaceFacts:
-    components: tuple[ComponentFacts, ...]
-    vertex_count: int
-    edge_count: int
-    face_count: int
-
-    @property
-    def euler_characteristic(self) -> int:
-        return self.vertex_count - self.edge_count + self.face_count
-
-    @property
-    def boundary_components(self) -> int:
-        return sum(component.boundary_components for component in self.components)
-
-
-@dataclass(frozen=True, slots=True)
-class CellularHomology:
-    """``relations`` are d2 columns in the fundamental ``cycle_basis`` of ker(d1).
-
-    ``smith_coordinate_map`` converts coordinates in that basis to the Smith basis.
-    """
-
-    edge_basis: tuple[EdgeRef, ...]
-    cycle_basis: tuple[str, ...]
-    relations: tuple[tuple[int, ...], ...]
-    smith_diagonal: tuple[int, ...]
-    smith_basis: tuple[tuple[int, ...], ...]
-    smith_coordinate_map: tuple[tuple[int, ...], ...]
-    h0_rank: int
-    h1_rank: int
-    h1_torsion: tuple[int, ...]
-    h2_rank: int
 
 
 class SurfaceAnalyzer:
@@ -129,9 +81,10 @@ class SurfaceAnalyzer:
             sum(c.orientable and c.boundary_components == 0 for c in facts.components),
         )
 
-    def path_is_cycle(self, surface: SurfacePresentation, path: SurfacePath) -> bool:
-        quotient = surface._quotient_vertices()
-        return surface._path_endpoint(path.edges[0], True, quotient) == surface._path_endpoint(
+    @staticmethod
+    def path_is_cycle(surface: SurfacePresentation, path: SurfacePath) -> bool:
+        quotient = surface.quotient_vertices()
+        return surface.path_endpoint(path.edges[0], True, quotient) == surface.path_endpoint(
             path.edges[-1], False, quotient
         )
 
@@ -177,6 +130,36 @@ class SurfaceAnalyzer:
     def cycle_basis(self, surface: SurfacePresentation) -> tuple[str, ...]:
         return self.cellular_homology(surface).cycle_basis
 
+    @staticmethod
+    def _tree_path(
+        start: int, end: int, adjacency: dict[int, list[tuple[int, int, bool]]]
+    ) -> tuple[tuple[int, bool], ...]:
+        if start == end:
+            return ()
+        previous: dict[int, tuple[int, int, bool]] = {}
+        pending = [start]
+        reached = {start}
+        while pending:
+            current = pending.pop()
+            if current == end:
+                break
+            for neighbor, edge_index, forward in adjacency[current]:
+                if neighbor in reached:
+                    continue
+                reached.add(neighbor)
+                previous[neighbor] = (current, edge_index, forward)
+                pending.append(neighbor)
+        if end not in reached:
+            raise ValueError("cycle endpoints are disconnected in the spanning forest")
+        result: list[tuple[int, bool]] = []
+        current = end
+        while current != start:
+            parent, edge_index, forward = previous[current]
+            result.append((edge_index, forward))
+            current = parent
+        result.reverse()
+        return tuple(result)
+
     def _fundamental_cycle_chains(
         self, surface: SurfacePresentation
     ) -> tuple[tuple[int, ...], ...]:
@@ -212,40 +195,13 @@ class SurfaceAnalyzer:
             for component in {forest.find(vertex) for vertex in range(len(vertex_roots))}
         }
 
-        def tree_path(start: int, end: int) -> tuple[tuple[int, bool], ...]:
-            if start == end:
-                return ()
-            previous: dict[int, tuple[int, int, bool]] = {}
-            pending = [start]
-            reached = {start}
-            while pending:
-                current = pending.pop()
-                if current == end:
-                    break
-                for neighbor, edge_index, forward in adjacency[current]:
-                    if neighbor in reached:
-                        continue
-                    reached.add(neighbor)
-                    previous[neighbor] = (current, edge_index, forward)
-                    pending.append(neighbor)
-            if end not in reached:
-                raise ValueError("cycle endpoints are disconnected in the spanning forest")
-            result: list[tuple[int, bool]] = []
-            current = end
-            while current != start:
-                parent, edge_index, forward = previous[current]
-                result.append((edge_index, forward))
-                current = parent
-            result.reverse()
-            return tuple(result)
-
         chains = []
         for edge_index, start, end in chords:
             root = component_root[forest.find(start)]
             edges = (
-                *tree_path(root, start),
+                *self._tree_path(root, start, adjacency),
                 (edge_index, True),
-                *tree_path(end, root),
+                *self._tree_path(end, root, adjacency),
             )
             chain = [0] * len(edge_basis)
             for quotient_edge, forward in edges:
@@ -336,9 +292,8 @@ class SurfaceAnalyzer:
             genus = numerator
         return ComponentFacts(polygons, orientable, chi, boundary_count, genus)
 
-    def _quotient(
-        self, surface: SurfacePresentation
-    ) -> tuple[tuple[int, ...], DisjointSet, DisjointSet]:
+    @staticmethod
+    def _quotient(surface: SurfacePresentation) -> tuple[tuple[int, ...], DisjointSet, DisjointSet]:
         offsets = surface.vertex_offsets()
         vertices = DisjointSet(offsets[-1])
         polygons = DisjointSet(len(surface.polygons))

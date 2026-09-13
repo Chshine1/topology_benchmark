@@ -4,10 +4,8 @@ from typing import override
 from topology_benchmark.core.models import GenerationRequest, Problem
 from topology_benchmark.core.probability import SamplingSession
 from topology_benchmark.core.protocols import ProblemRecipe
-from topology_benchmark.domains.surfaces.analysis import SurfaceAnalyzer
-from topology_benchmark.domains.surfaces.components.generation_config import SurfaceGenerationConfig
-from topology_benchmark.domains.surfaces.components.invariant import integral_homology
-from topology_benchmark.domains.surfaces.generation import (
+from topology_benchmark.domains.surfaces.generation.config import SurfaceGenerationConfig
+from topology_benchmark.domains.surfaces.generation.context.morphism import (
     SurfaceMorphismGenerationContext,
 )
 from topology_benchmark.domains.surfaces.models import (
@@ -20,6 +18,8 @@ from topology_benchmark.domains.surfaces.ports import (
     SurfaceMorphismGenerator,
     SurfaceRepresentation,
 )
+from topology_benchmark.domains.surfaces.questions.answers import integral_homology
+from topology_benchmark.domains.surfaces.services import SurfaceAnalyzer
 
 
 class SurfaceMorphismQuestion(ProblemRecipe[SurfaceAnswer], ABC):
@@ -37,14 +37,14 @@ class SurfaceMorphismQuestion(ProblemRecipe[SurfaceAnswer], ABC):
         self._representation = representation
         self._analyzer = analyzer
         self._config = config
-        self._affinity = config.affinity_for(self.id)
+        self._morphism_law = config.morphism_law_for(self.id)
 
     @override
     def generate(self, request: GenerationRequest) -> Problem[SurfaceAnswer]:
         sampling = SamplingSession(request.seed, self._config.profile_version)
         context = SurfaceMorphismGenerationContext(
             request,
-            self._affinity,
+            self._morphism_law.at(request.difficulty),
             sampling,
         )
         morphism = self._generator.generate_for(context)

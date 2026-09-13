@@ -86,9 +86,21 @@
 - Keep benchmark providers as orchestration shells: resolve a selected question, invoke its domain
   lifecycle, and return the result. Adding a question must not require extending a central dispatch
   branch in a benchmark or generator.
+- Express a question's stochastic generation intent as a typed distribution over semantic outcomes,
+  constraints, or annotated domain objects. Do not encode it as coarse question-category enums or
+  boolean hints that generators translate through hidden probability branches.
+- Keep semantic laws separate from their realization algorithms. Finite laws should retain exact
+  operations such as conditioning, pushforward, probability, and expectation; generators may use
+  bounded sampling to realize a selected outcome when the full object space is not enumerable.
 
 ## Properties and data
 
+- Use a type alias only when it gives a repeated type expression a stable domain meaning or names a
+  closed set of variants. Do not alias an already-readable generic specialization merely to give it
+  a different noun; spell out the specialization at its use sites.
+- Use frozen attrs classes for small immutable domain values in domains that already use attrs.
+  Put independent field invariants such as positivity on the field validator, and represent
+  mutually exclusive shapes as concrete unions rather than nullable fields with cross-field checks.
 - Represent immutable domain state as public frozen-dataclass fields. Do not add private backing
   fields plus forwarding properties when no validation, translation, or compatibility boundary
   exists.
@@ -105,6 +117,10 @@
 
 ## Maintenance and architectural memory
 
+- Keep a context or aggregate beside the value types that define its shape. When a capability has
+  several roles and subject families, give it a package with role-oriented subpackages and
+  subject-named modules, such as `generation/context/object.py` and
+  `generation/generator/object.py`. Do not use generic catch-all packages such as `components`.
 - Do not preserve obsolete import modules, renamed-symbol aliases, forwarding properties, or
   test-only helpers in production solely for backward compatibility. Update repository callers
   to the canonical API and remove the legacy surface; keep specialized fixtures in tests.

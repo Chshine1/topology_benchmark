@@ -5,7 +5,11 @@ from random import Random
 from types import MappingProxyType
 from typing import Protocol, override
 
-from topology_benchmark.core.probability import interpolate_anchors
+from topology_benchmark.core.probability import (
+    FiniteDistribution,
+    WeightedValue,
+    interpolate_anchors,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,13 +31,10 @@ class QuestionDistribution[QuestionT]:
             raise ValueError("a question distribution needs positive total weight")
 
     def sample(self, rng: Random) -> QuestionT:
-        point = rng.random() * sum(choice.weight for choice in self.choices)
-        cumulative = 0.0
-        for choice in self.choices:
-            cumulative += choice.weight
-            if point < cumulative:
-                return choice.question
-        return self.choices[-1].question
+        distribution = FiniteDistribution(
+            tuple(WeightedValue(choice.question, choice.weight) for choice in self.choices)
+        )
+        return distribution.sample(rng)
 
     @classmethod
     def concentrated(cls, question: QuestionT) -> QuestionDistribution[QuestionT]:

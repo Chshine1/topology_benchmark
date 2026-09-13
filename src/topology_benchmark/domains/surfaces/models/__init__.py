@@ -1,3 +1,4 @@
+from .fact import CellularHomology, ComponentFacts, SurfaceFacts
 from .morphism import (
     BoundaryGluingMorphism,
     PolygonAttachmentMorphism,
@@ -14,11 +15,14 @@ from .object import (
 
 __all__ = [
     "BoundaryGluingMorphism",
+    "CellularHomology",
+    "ComponentFacts",
     "EdgeGluing",
     "EdgeRef",
     "OrientedEdge",
     "Polygon",
     "PolygonAttachmentMorphism",
+    "SurfaceFacts",
     "SurfaceMorphism",
     "SurfacePath",
     "SurfacePresentation",

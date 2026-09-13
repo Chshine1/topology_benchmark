@@ -1,25 +1,17 @@
 from lagom import Container, Singleton
 
-from topology_benchmark.domains.surfaces.analysis import SurfaceAnalyzer
 from topology_benchmark.domains.surfaces.benchmark import (
     SurfaceBenchmark,
     SurfaceQuestionCatalog,
 )
-from topology_benchmark.domains.surfaces.components.display import SurfaceDiagramPlanner
-from topology_benchmark.domains.surfaces.components.generation_config import (
-    SurfaceGenerationConfig,
-)
-from topology_benchmark.domains.surfaces.components.generator import (
+from topology_benchmark.domains.surfaces.distributions import SurfaceDefaultQuestionDistribution
+from topology_benchmark.domains.surfaces.generation.config import SurfaceGenerationConfig
+from topology_benchmark.domains.surfaces.generation.generator.morphism import (
     RandomSurfaceMorphismGenerator,
+)
+from topology_benchmark.domains.surfaces.generation.generator.object import (
     RandomSurfacePresentationGenerator,
 )
-from topology_benchmark.domains.surfaces.components.rendering_config import (
-    SurfaceRenderingConfig,
-)
-from topology_benchmark.domains.surfaces.components.representation import (
-    MatplotlibGluingDiagramRenderer,
-)
-from topology_benchmark.domains.surfaces.distributions import SurfaceDefaultQuestionDistribution
 from topology_benchmark.domains.surfaces.ports import (
     SurfaceGenerator,
     SurfaceMorphismGenerator,
@@ -42,6 +34,12 @@ from topology_benchmark.domains.surfaces.questions import (
     TargetHomologyQuestion,
     TargetOrientableQuestion,
 )
+from topology_benchmark.domains.surfaces.rendering.config import SurfaceRenderingConfig
+from topology_benchmark.domains.surfaces.rendering.diagram import SurfaceDiagramPlanner
+from topology_benchmark.domains.surfaces.rendering.renderer import (
+    MatplotlibGluingDiagramRenderer,
+)
+from topology_benchmark.domains.surfaces.services import SurfaceAnalyzer
 
 
 def add_surface_domain(

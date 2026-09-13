@@ -6,14 +6,14 @@ from random import Random
 from attrs import field, frozen
 
 from topology_benchmark.core.validation import nonempty, number_range
-from topology_benchmark.domains.surfaces.components.rendering_config import (
-    SurfaceRenderingConfig,
-)
 from topology_benchmark.domains.surfaces.models import (
     EdgeRef,
     OrientedEdge,
     SurfacePath,
     SurfacePresentation,
+)
+from topology_benchmark.domains.surfaces.rendering.config import (
+    SurfaceRenderingConfig,
 )
 
 type Point = tuple[float, float]

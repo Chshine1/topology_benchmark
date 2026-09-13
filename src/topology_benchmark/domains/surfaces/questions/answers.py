@@ -1,7 +1,7 @@
 from collections import Counter
 
-from topology_benchmark.domains.surfaces.analysis import SurfaceAnalyzer
 from topology_benchmark.domains.surfaces.models import SurfacePresentation
+from topology_benchmark.domains.surfaces.services import SurfaceAnalyzer
 
 
 def integral_homology(analyzer: SurfaceAnalyzer, surface: SurfacePresentation) -> str:

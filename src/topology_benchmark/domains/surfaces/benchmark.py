@@ -7,7 +7,7 @@ from topology_benchmark.core.recipes import (
     QuestionCatalog,
     QuestionDistribution,
 )
-from topology_benchmark.domains.surfaces.components.generation_config import SurfaceGenerationConfig
+from topology_benchmark.domains.surfaces.generation.config import SurfaceGenerationConfig
 from topology_benchmark.domains.surfaces.ports import SurfaceAnswer
 from topology_benchmark.domains.surfaces.questions import SurfaceQuestion
 

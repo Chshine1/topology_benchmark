@@ -11,29 +11,17 @@ from topology_benchmark.application.configuration import (
     SURFACE_RENDERING_DEFAULTS,
 )
 from topology_benchmark.core.models import GenerationRequest
-from topology_benchmark.domains.surfaces.analysis import SurfaceAnalyzer
+from topology_benchmark.core.probability import SamplingSession
 from topology_benchmark.domains.surfaces.benchmark import SurfaceQuestionCatalog
-from topology_benchmark.domains.surfaces.components.display import (
-    DiagramStyle,
-    LinePattern,
-    OrderDisplay,
-    Palette,
-    SurfaceDiagramPlanner,
+from topology_benchmark.domains.surfaces.generation.config import load_generation_config
+from topology_benchmark.domains.surfaces.generation.context.object import (
+    SurfaceObjectGenerationContext,
 )
-from topology_benchmark.domains.surfaces.components.generation_config import (
-    load_generation_config,
-)
-from topology_benchmark.domains.surfaces.components.generator import (
+from topology_benchmark.domains.surfaces.generation.generator.morphism import (
     RandomSurfaceMorphismGenerator,
+)
+from topology_benchmark.domains.surfaces.generation.generator.object import (
     RandomSurfacePresentationGenerator,
-)
-from topology_benchmark.domains.surfaces.components.invariant import integral_homology
-from topology_benchmark.domains.surfaces.components.rendering_config import (
-    SurfaceRenderingConfig,
-    load_rendering_config,
-)
-from topology_benchmark.domains.surfaces.components.representation import (
-    MatplotlibGluingDiagramRenderer,
 )
 from topology_benchmark.domains.surfaces.models import (
     EdgeGluing,
@@ -43,6 +31,22 @@ from topology_benchmark.domains.surfaces.models import (
     SurfacePath,
     SurfacePresentation,
 )
+from topology_benchmark.domains.surfaces.questions.answers import integral_homology
+from topology_benchmark.domains.surfaces.rendering.config import (
+    SurfaceRenderingConfig,
+    load_rendering_config,
+)
+from topology_benchmark.domains.surfaces.rendering.diagram import (
+    DiagramStyle,
+    LinePattern,
+    OrderDisplay,
+    Palette,
+    SurfaceDiagramPlanner,
+)
+from topology_benchmark.domains.surfaces.rendering.renderer import (
+    MatplotlibGluingDiagramRenderer,
+)
+from topology_benchmark.domains.surfaces.services import SurfaceAnalyzer
 
 
 def _question(question_id: str) -> Any:
@@ -52,10 +56,18 @@ def _question(question_id: str) -> Any:
 def test_generated_quotients_are_compact_surfaces_without_stored_invariants() -> None:
     analyzer = SurfaceAnalyzer()
     generator = RandomSurfacePresentationGenerator(
-        load_generation_config(SURFACE_GENERATION_DEFAULTS), analyzer
+        (config := load_generation_config(SURFACE_GENERATION_DEFAULTS)), analyzer
     )
     for seed in range(80):
-        surface = generator.generate(GenerationRequest(seed, 8), random.Random(seed))
+        request = GenerationRequest(seed, 8)
+        sampling = SamplingSession(seed, config.profile_version)
+        surface = generator.generate_for(
+            SurfaceObjectGenerationContext(
+                request,
+                config.object_law_for("euler-characteristic"),
+                sampling,
+            )
+        )
         facts = analyzer.analyze(surface)
         assert facts.components
         assert facts.euler_characteristic == (
@@ -120,9 +132,14 @@ def test_morphism_invariants_are_computed_from_source_and_target() -> None:
 
 def test_renderer_is_deterministic() -> None:
     request = GenerationRequest(3, 5)
-    surface = RandomSurfacePresentationGenerator(
-        load_generation_config(SURFACE_GENERATION_DEFAULTS), SurfaceAnalyzer()
-    ).generate(request, random.Random(3))
+    generation_config = load_generation_config(SURFACE_GENERATION_DEFAULTS)
+    surface = RandomSurfacePresentationGenerator(generation_config, SurfaceAnalyzer()).generate_for(
+        SurfaceObjectGenerationContext(
+            request,
+            generation_config.object_law_for("euler-characteristic"),
+            SamplingSession(request.seed, generation_config.profile_version),
+        )
+    )
     config = load_rendering_config(SURFACE_RENDERING_DEFAULTS)
     renderer = MatplotlibGluingDiagramRenderer(SurfaceDiagramPlanner(config), config)
 

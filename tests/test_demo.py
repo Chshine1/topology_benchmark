@@ -4,11 +4,13 @@ from topology_benchmark import BenchmarkCatalog, build_container
 from topology_benchmark.application.demo import DemoApplication
 from topology_benchmark.core.models import GenerationRequest
 from topology_benchmark.domains.polyhedral_nets.analysis import PolyhedralNetAnalyzer
-from topology_benchmark.domains.surfaces.analysis import SurfaceAnalyzer
-from topology_benchmark.domains.surfaces.components.generator import (
+from topology_benchmark.domains.surfaces.generation.generator.morphism import (
     RandomSurfaceMorphismGenerator,
+)
+from topology_benchmark.domains.surfaces.generation.generator.object import (
     RandomSurfacePresentationGenerator,
 )
+from topology_benchmark.domains.surfaces.services import SurfaceAnalyzer
 from topology_benchmark.domains.torus_slices.analysis import TorusFamilyAnalyzer
 from topology_benchmark.domains.torus_slices.generation import RandomTorusSliceGenerator
 
