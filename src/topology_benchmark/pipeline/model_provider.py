@@ -1,51 +1,41 @@
 import base64
 import json
-import os
 from dataclasses import dataclass
 from typing import Protocol, override
 from urllib.request import Request, urlopen
 
+from attrs import field, frozen
+
 from topology_benchmark.core.models import QuestionSection
-from topology_benchmark.pipeline.config import ProviderConfig
+from topology_benchmark.core.validation import nonblank
+from topology_benchmark.pipeline.config import OpenAICompatibleModelProviderConfig
 
 
 class ModelProvider(Protocol):
-    @property
-    def identity(self) -> str: ...
-
     def answer(self, question: str, sections: tuple[QuestionSection, ...]) -> str: ...
 
 
-@dataclass(slots=True)
-class FixedProvider(ModelProvider):
-    response: str
-
-    @property
-    @override
-    def identity(self) -> str:
-        return "fixed"
-
-    @override
-    def answer(self, question: str, sections: tuple[QuestionSection, ...]) -> str:
-        del question, sections
-        return self.response
+@frozen
+class OpenAICompatibleModelProviderCredentials:
+    api_key: str = field(validator=nonblank("a model provider API key cannot be blank"))
 
 
 @dataclass(slots=True)
-class OpenAICompatibleProvider(ModelProvider):
-    config: ProviderConfig
-
-    @property
-    @override
-    def identity(self) -> str:
-        return self.config.model
+class OpenAICompatibleModelProvider(ModelProvider):
+    config: OpenAICompatibleModelProviderConfig
+    credentials: OpenAICompatibleModelProviderCredentials
 
     @override
     def answer(self, question: str, sections: tuple[QuestionSection, ...]) -> str:
-        api_key = os.environ.get(self.config.api_key_env)
-        if not api_key:
-            raise RuntimeError(f"missing API key environment variable {self.config.api_key_env}")
-        content: list[dict[str, object]] = [{"type": "text", "text": _instruction(question)}]
+        content: list[dict[str, object]] = [
+            {
+                "type": "text",
+                "text": (
+                    f"{question}\n\nSolve the problem from the supplied diagram(s). "
+                    "End with a line in exactly this form: FINAL_ANSWER: <answer>"
+                ),
+            }
+        ]
         for section in sections:
             encoded = base64.b64encode(section.content.encode()).decode()
             content.append(
@@ -62,7 +52,7 @@ class OpenAICompatibleProvider(ModelProvider):
             }
         ).encode()
         headers = {
-            "Authorization": f"Bearer {api_key}",
+            "Authorization": f"Bearer {self.credentials.api_key}",
             "Content-Type": "application/json",
             **self.config.extra_headers,
         }
@@ -71,16 +61,3 @@ class OpenAICompatibleProvider(ModelProvider):
         with urlopen(request, timeout=self.config.timeout_seconds) as response:
             result = json.loads(response.read())
         return str(result["choices"][0]["message"]["content"])
-
-
-def build_provider(config: ProviderConfig) -> ModelProvider:
-    if config.kind == "fixed":
-        return FixedProvider(config.fixed_response)
-    return OpenAICompatibleProvider(config)
-
-
-def _instruction(question: str) -> str:
-    return (
-        f"{question}\n\nSolve the problem from the supplied diagram(s). "
-        "End with a line in exactly this form: FINAL_ANSWER: <answer>"
-    )

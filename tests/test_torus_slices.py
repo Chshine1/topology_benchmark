@@ -89,6 +89,6 @@ def test_benchmark_is_wired_and_hides_equations_and_core_circles() -> None:
     second = benchmark.generate(request=GenerationRequest(8, 8), distribution=distribution)
 
     assert first == second
-    assert first.question_kind in {"linked-pair-count", "completely-unlinked"}
+    assert first.question_id in {"linked-pair-count", "completely-unlinked"}
     assert first.sections[0].media_type == "image/svg+xml"
     assert "Parallel level sections" in first.sections[0].content

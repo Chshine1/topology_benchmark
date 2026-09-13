@@ -42,9 +42,8 @@ def main() -> None:
     except (OSError, ValidationError, yaml.YAMLError) as error:
         parser.error(str(error))
         return
-    catalog = container.resolve(BenchmarkCatalog)
     try:
-        catalog.validate_domain(args.domain)
+        catalog = container.resolve(BenchmarkCatalog)
     except BenchmarkApplicationError as error:
         parser.error(str(error))
         return

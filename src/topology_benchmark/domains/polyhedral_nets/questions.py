@@ -1,7 +1,10 @@
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from random import Random
 from typing import Protocol, override
 
+from attrs import evolve, field, frozen, validators
+
+from topology_benchmark.core.recipes import RegisteredQuestion
 from topology_benchmark.domains.polyhedral_nets.analysis import PolyhedralNetAnalyzer
 from topology_benchmark.domains.polyhedral_nets.models import (
     EdgePair,
@@ -25,8 +28,7 @@ class PolyhedralQuestionDraft:
     observed: PolyhedralNet
 
 
-class PolyhedralQuestion(Protocol):
-    id: str
+class PolyhedralQuestion(RegisteredQuestion, Protocol):
     attempts: int
 
     def build(
@@ -38,66 +40,38 @@ class PolyhedralQuestion(Protocol):
     ) -> PolyhedralQuestionDraft | None: ...
 
 
-@dataclass(frozen=True, slots=True)
+@frozen
 class VertexPartitionConfig:
-    attempts: int = 30
-    easy_mark_count: int = 4
-    hard_mark_count: int = 5
-    hard_from: int = 6
-
-    def __post_init__(self) -> None:
-        if min(self.attempts, self.easy_mark_count, self.hard_mark_count, self.hard_from) < 1:
-            raise ValueError("vertex-partition configuration values must be positive")
+    attempts: int = field(default=30, validator=validators.ge(1))
+    easy_mark_count: int = field(default=4, validator=validators.ge(1))
+    hard_mark_count: int = field(default=5, validator=validators.ge(1))
+    hard_from: int = field(default=6, validator=validators.ge(1))
 
 
-@dataclass(frozen=True, slots=True)
+@frozen
 class VertexDegreeConfig:
-    attempts: int = 30
-
-    def __post_init__(self) -> None:
-        if self.attempts < 1:
-            raise ValueError("question attempts must be positive")
+    attempts: int = field(default=30, validator=validators.ge(1))
 
 
-@dataclass(frozen=True, slots=True)
+@frozen
 class CurvatureOrderConfig:
-    attempts: int = 30
-    exact_margin: float = 8.0
-    visible_margin: int = 6
-
-    def __post_init__(self) -> None:
-        if self.attempts < 1 or self.exact_margin < 0 or self.visible_margin < 0:
-            raise ValueError("curvature configuration is invalid")
+    attempts: int = field(default=30, validator=validators.ge(1))
+    exact_margin: float = field(default=8.0, validator=validators.ge(0.0))
+    visible_margin: int = field(default=6, validator=validators.ge(0))
 
 
-@dataclass(frozen=True, slots=True)
+@frozen
 class SeamMatchConfig:
-    attempts: int = 30
-    candidate_count: int = 3
-
-    def __post_init__(self) -> None:
-        if self.attempts < 1 or self.candidate_count < 1:
-            raise ValueError("seam-match configuration values must be positive")
+    attempts: int = field(default=30, validator=validators.ge(1))
+    candidate_count: int = field(default=3, validator=validators.ge(1))
 
 
-@dataclass(frozen=True, slots=True)
+@frozen
 class CellDistanceConfig:
-    attempts: int = 30
-    edge_cells_from: int = 4
-    vertex_cells_from: int = 7
-    candidate_limit: int = 24
-
-    def __post_init__(self) -> None:
-        if (
-            min(
-                self.attempts,
-                self.edge_cells_from,
-                self.vertex_cells_from,
-                self.candidate_limit,
-            )
-            < 1
-        ):
-            raise ValueError("cell-distance configuration values must be positive")
+    attempts: int = field(default=30, validator=validators.ge(1))
+    edge_cells_from: int = field(default=4, validator=validators.ge(1))
+    vertex_cells_from: int = field(default=7, validator=validators.ge(1))
+    candidate_limit: int = field(default=24, validator=validators.ge(1))
 
 
 class VertexPartitionQuestion(PolyhedralQuestion):
@@ -161,7 +135,7 @@ class VertexPartitionQuestion(PolyhedralQuestion):
             f"{chr(ord('A') + count - 1)} by the folded vertex they become. Write letters in "
             "each group alphabetically and separate the groups with |, for example AC|B|D.",
             value,
-            replace(folding.net, seam_hints=hints, corner_labels=labels),
+            evolve(folding.net, seam_hints=hints, corner_labels=labels),
         )
 
 
@@ -204,7 +178,7 @@ class VertexDegreeQuestion(PolyhedralQuestion):
         return PolyhedralQuestionDraft(
             "How many faces meet at the folded vertex containing marked corner A?",
             value,
-            replace(folding.net, seam_hints=hints, corner_labels=((corner, "A"),)),
+            evolve(folding.net, seam_hints=hints, corner_labels=((corner, "A"),)),
         )
 
 
@@ -268,7 +242,7 @@ class CurvatureOrderQuestion(PolyhedralQuestion):
             for face, shape in enumerate(net.faces)
             for corner in range(shape.sides)
         )
-        observed = replace(
+        observed = evolve(
             net,
             seam_hints=hints,
             corner_labels=((first, "A"), (second, "B")),
@@ -336,7 +310,7 @@ class SeamMatchQuestion(PolyhedralQuestion):
             "When the convex polyhedron is reconstructed, which labelled boundary edge is "
             "glued to edge A?",
             value,
-            replace(net, seam_hints=hints, edge_labels=labels),
+            evolve(net, seam_hints=hints, edge_labels=labels),
         )
 
 

@@ -1,7 +1,8 @@
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
 from random import Random
 from typing import Literal, override
+
+from attrs import field, frozen, validators
 
 from topology_benchmark.core.models import GenerationRequest, Problem
 from topology_benchmark.core.probability import SamplingSession
@@ -17,32 +18,39 @@ from topology_benchmark.domains.torus_slices.ports import (
 type TorusAnswer = int | bool
 
 
-@dataclass(frozen=True, slots=True)
+@frozen
 class TorusCountConfig:
-    easy_maximum: int = 2
-    standard_maximum: int = 3
-    linked_probability: float = 0.58
-
-    def __post_init__(self) -> None:
-        if min(self.easy_maximum, self.standard_maximum) < 1:
-            raise ValueError("torus-count maxima must be positive")
-        if not 0 <= self.linked_probability <= 1:
-            raise ValueError("linked_probability must be a probability")
+    easy_maximum: int = field(default=2, validator=validators.ge(1))
+    standard_maximum: int = field(default=3, validator=validators.ge(1))
+    linked_probability: float = field(
+        default=0.58,
+        validator=validators.and_(validators.ge(0.0), validators.le(1.0)),
+    )
 
 
-@dataclass(frozen=True, slots=True)
+@frozen
 class TorusLinkConfig:
-    minimum_count: int = 2
-    maximum_count: int = 4
-    chain_probability: float = 0.4
-    complete_probability: float = 0.4
+    minimum_count: int = field(
+        default=2,
+        validator=validators.and_(validators.ge(2), validators.le(4)),
+    )
+    maximum_count: int = field(
+        default=4,
+        validator=validators.and_(validators.ge(2), validators.le(4)),
+    )
+    chain_probability: float = field(
+        default=0.4,
+        validator=validators.and_(validators.ge(0.0), validators.le(1.0)),
+    )
+    complete_probability: float = field(
+        default=0.4,
+        validator=validators.and_(validators.ge(0.0), validators.le(1.0)),
+    )
 
-    def __post_init__(self) -> None:
-        if not 2 <= self.minimum_count <= self.maximum_count <= 4:
+    def __attrs_post_init__(self) -> None:
+        if self.minimum_count > self.maximum_count:
             raise ValueError("torus link counts must lie between two and four")
-        if min(self.chain_probability, self.complete_probability) < 0 or (
-            self.chain_probability + self.complete_probability > 1
-        ):
+        if self.chain_probability + self.complete_probability > 1:
             raise ValueError("torus link pattern probabilities are invalid")
 
 

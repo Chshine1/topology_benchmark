@@ -1,34 +1,39 @@
 import math
 from collections.abc import Iterator, Mapping
-from dataclasses import dataclass
 from random import Random
 from types import MappingProxyType
 from typing import Protocol, override
+
+from attrs import field, frozen, validators
 
 from topology_benchmark.core.probability import (
     FiniteDistribution,
     WeightedValue,
     interpolate_anchors,
 )
+from topology_benchmark.core.validation import all_members, any_member, nonempty, number_range
 
 
-@dataclass(frozen=True, slots=True)
+@frozen
 class QuestionChoice[QuestionT]:
     question: QuestionT
-    weight: float
+    weight: float = field(
+        validator=number_range(
+            minimum=0.0,
+            finite=True,
+            message="question weights must be finite and nonnegative",
+        )
+    )
 
-    def __post_init__(self) -> None:
-        if self.weight < 0 or not math.isfinite(self.weight):
-            raise ValueError("question weights must be finite and nonnegative")
 
-
-@dataclass(frozen=True, slots=True)
+@frozen
 class QuestionDistribution[QuestionT]:
-    choices: tuple[QuestionChoice[QuestionT], ...]
-
-    def __post_init__(self) -> None:
-        if not self.choices or not any(choice.weight > 0 for choice in self.choices):
-            raise ValueError("a question distribution needs positive total weight")
+    choices: tuple[QuestionChoice[QuestionT], ...] = field(
+        validator=any_member(
+            lambda choice: choice.weight > 0,
+            message="a question distribution needs positive total weight",
+        )
+    )
 
     def sample(self, rng: Random) -> QuestionT:
         distribution = FiniteDistribution(
@@ -41,18 +46,18 @@ class QuestionDistribution[QuestionT]:
         return cls((QuestionChoice(question, 1.0),))
 
 
-@dataclass(frozen=True, slots=True)
+@frozen
 class DifficultyQuestionChoice[QuestionT]:
     question: QuestionT
-    weights: tuple[tuple[int, float], ...]
-
-    def __post_init__(self) -> None:
-        if not self.weights:
-            raise ValueError("difficulty question weights must not be empty")
-        if any(
-            level < 1 or weight < 0 or not math.isfinite(weight) for level, weight in self.weights
-        ):
-            raise ValueError("difficulty question weights are invalid")
+    weights: tuple[tuple[int, float], ...] = field(
+        validator=validators.and_(
+            nonempty("difficulty question weights must not be empty"),
+            all_members(
+                lambda anchor: anchor[0] >= 1 and anchor[1] >= 0 and math.isfinite(anchor[1]),
+                message="difficulty question weights are invalid",
+            ),
+        )
+    )
 
     def weight_at(self, difficulty: int) -> float:
         return interpolate_anchors(self.weights, difficulty)
@@ -62,13 +67,11 @@ class QuestionDistributionResolver[QuestionT](Protocol):
     def at(self, difficulty: int) -> QuestionDistribution[QuestionT]: ...
 
 
-@dataclass(frozen=True, slots=True)
+@frozen
 class DifficultyQuestionDistribution[QuestionT](QuestionDistributionResolver[QuestionT]):
-    choices: tuple[DifficultyQuestionChoice[QuestionT], ...]
-
-    def __post_init__(self) -> None:
-        if not self.choices:
-            raise ValueError("a difficulty question distribution must not be empty")
+    choices: tuple[DifficultyQuestionChoice[QuestionT], ...] = field(
+        validator=nonempty("a difficulty question distribution must not be empty")
+    )
 
     @override
     def at(self, difficulty: int) -> QuestionDistribution[QuestionT]:
@@ -80,12 +83,17 @@ class DifficultyQuestionDistribution[QuestionT](QuestionDistributionResolver[Que
         )
 
 
-class QuestionCatalog[QuestionT](Mapping[str, QuestionT]):
+class RegisteredQuestion(Protocol):
+    @property
+    def id(self) -> str: ...
+
+
+class QuestionCatalog[QuestionT: RegisteredQuestion](Mapping[str, QuestionT]):
     def __init__(self, questions: tuple[QuestionT, ...]) -> None:
         indexed: dict[str, QuestionT] = {}
         for question in questions:
-            question_id = getattr(question, "id", None)
-            if not isinstance(question_id, str) or not question_id:
+            question_id = question.id
+            if not question_id:
                 raise ValueError("questions need a nonempty string ID")
             if question_id in indexed:
                 raise ValueError(f"duplicate question ID: {question_id}")

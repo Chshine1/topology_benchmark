@@ -47,9 +47,9 @@ def test_demo_can_switch_between_registered_domains() -> None:
     net = json.loads(demo.problem_json(request=request, domain="polyhedral-nets"))
     tori = json.loads(demo.problem_json(request=request, domain="torus-slices"))
 
-    assert surface["question_kind"]
-    assert net["question_kind"]
-    assert tori["question_kind"]
+    assert surface["question_id"]
+    assert net["question_id"]
+    assert tori["question_id"]
     assert "metadata" not in surface
     assert "metadata" not in net
     assert "metadata" not in tori

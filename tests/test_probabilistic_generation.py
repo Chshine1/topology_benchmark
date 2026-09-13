@@ -168,5 +168,5 @@ def test_generation_yaml_is_layered_and_injected() -> None:
         request=GenerationRequest(3, 1),
         distribution=container.resolve(SurfaceDefaultQuestionDistribution).at(1),
     )
-    assert problem.question_kind
+    assert problem.question_id
     assert problem.sections

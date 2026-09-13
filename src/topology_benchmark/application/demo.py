@@ -19,7 +19,6 @@ class DemoApplication:
         default_domain: str,
     ) -> None:
         self._catalog = catalog
-        self._catalog.validate_domain(default_domain)
         self.default_domain = default_domain
 
     @property
@@ -222,12 +221,12 @@ _INDEX_HTML = """<!doctype html>
       if (!response.ok) throw new Error(problem.error || response.statusText);
       byId('question').textContent = problem.question;
       byId('problem-details').textContent = formatJson(
-        {seed: problem.seed, question_kind: problem.question_kind});
+        {seed: problem.seed, question_id: problem.question_id});
       byId('answer').textContent = formatJson(problem.answer);
       byId('sections').replaceChildren(...problem.sections.map(renderSection));
       history.replaceState(null, '', `/?domain=${encodeURIComponent(domain)}`
         + `&seed=${encodeURIComponent(seed)}&difficulty=${difficulty}`);
-      byId('status').textContent = `${domain} · ${problem.question_kind} · seed ${problem.seed}`;
+      byId('status').textContent = `${domain} · ${problem.question_id} · seed ${problem.seed}`;
     } catch (error) { byId('status').textContent = error.message; }
   }
   byId('difficulty').addEventListener('input', event => {

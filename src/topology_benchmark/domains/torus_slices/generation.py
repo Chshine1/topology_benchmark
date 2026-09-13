@@ -1,7 +1,8 @@
 import math
-from dataclasses import dataclass
 from random import Random
 from typing import Literal, override
+
+from attrs import field, frozen, validators
 
 from topology_benchmark.core.errors import GenerationExhaustedError
 from topology_benchmark.core.models import GenerationRequest
@@ -21,15 +22,13 @@ from topology_benchmark.domains.torus_slices.models import (
 from topology_benchmark.domains.torus_slices.ports import TorusSliceGenerator
 
 
-@dataclass(frozen=True, slots=True)
+@frozen
 class TorusGenerationSpec:
-    count: int
+    count: int = field(validator=validators.and_(validators.ge(1), validators.le(4)))
     linked: bool
     link_pattern: Literal["pairs", "chain", "complete"]
 
-    def __post_init__(self) -> None:
-        if not 1 <= self.count <= 4:
-            raise ValueError("generated families support one through four tori")
+    def __attrs_post_init__(self) -> None:
         if self.linked and self.count < 2:
             raise ValueError("a linked family needs at least two tori")
 

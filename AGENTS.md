@@ -77,6 +77,11 @@
 - Configuration may weight stable registered capability IDs, but must not name import paths or
   construct dependency graphs. A recipe owns compatibility between generation, certification,
   question formulation, answer computation, and presentation.
+- Use stable string IDs for capabilities that cross configuration, persistence, or request
+  boundaries. Use concrete classes or protocols for in-process dependency registration; do not
+  add string identities to services merely to recover their implementation type at runtime.
+- Keep test doubles in tests and inject them through production protocols. Do not expose fake or
+  fixed implementations as deployable configuration choices merely to support offline tests.
 - Represent question selection as a distribution over registered question objects. Question-specific
   generation parameters belong in typed configuration carried by the question; generators must not
   inspect question IDs to choose behavior.
@@ -98,12 +103,13 @@
 - Use a type alias only when it gives a repeated type expression a stable domain meaning or names a
   closed set of variants. Do not alias an already-readable generic specialization merely to give it
   a different noun; spell out the specialization at its use sites.
-- Use frozen attrs classes for small immutable domain values in domains that already use attrs.
-  Put independent field invariants such as positivity on the field validator, and represent
-  mutually exclusive shapes as concrete unions rather than nullable fields with cross-field checks.
-- Represent immutable domain state as public frozen-dataclass fields. Do not add private backing
-  fields plus forwarding properties when no validation, translation, or compatibility boundary
-  exists.
+- Use frozen attrs classes for small immutable values that require validation, regardless of which
+  package contains them. Express independent field invariants declaratively with attrs validators;
+  do not implement them imperatively in `__post_init__`. Represent mutually exclusive shapes as
+  concrete unions rather than nullable fields with cross-field checks.
+- Use frozen dataclasses for plain immutable records that do not require validation. Represent
+  immutable state as public fields; do not add private backing fields plus forwarding properties
+  when no validation, translation, or compatibility boundary exists.
 - Use a property for a cheap derived value, a read-only view that protects mutable internal state,
   or a genuinely uniform interface whose implementations derive the value differently.
 - Do not retain forwarding properties as aliases for renamed fields. Update callers to the
@@ -121,6 +127,10 @@
   several roles and subject families, give it a package with role-oriented subpackages and
   subject-named modules, such as `generation/context/object.py` and
   `generation/generator/object.py`. Do not use generic catch-all packages such as `components`.
+- Name modules after the concrete capability or role they own. Avoid catch-all names such as
+  `runner`, `manager`, `helpers`, or `utils` when the contents span generation, evaluation,
+  persistence, or other distinct lifecycles; split those roles and keep shared leaf operations
+  inside the narrowest owning package.
 - Do not preserve obsolete import modules, renamed-symbol aliases, forwarding properties, or
   test-only helpers in production solely for backward compatibility. Update repository callers
   to the canonical API and remove the legacy surface; keep specialized fixtures in tests.

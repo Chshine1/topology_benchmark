@@ -331,7 +331,7 @@ def test_path_coordinates_use_tagged_edges_and_an_explicit_homology_basis() -> N
             problem := build_container()
             .resolve(BenchmarkCatalog)
             .generate(domain="surfaces", request=GenerationRequest(seed, 10))
-        ).question_kind
+        ).question_id
         == "path-representative"
     )
     assert isinstance(problem.answer, tuple)

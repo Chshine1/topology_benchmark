@@ -36,12 +36,17 @@ class BenchmarkCatalog:
     def domains(self) -> tuple[str, ...]:
         return tuple(self._registrations)
 
-    def validate_domain(self, domain: str) -> None:
-        self._require_domain(domain)
+    def require_domain(self, domain: str) -> None:
+        self._get_required_registration(domain)
 
-    def validate_recipe(self, domain: str, recipe: str) -> None:
-        registration = self._require_domain(domain)
-        self._require_question(registration, domain, recipe)
+    def require_question(self, domain: str, question_id: str) -> None:
+        registration = self._get_required_registration(domain)
+        try:
+            registration.questions[question_id]
+        except KeyError as error:
+            raise UnknownQuestionError(
+                domain, question_id, tuple(sorted(registration.questions))
+            ) from error
 
     def generate(
         self,
@@ -49,7 +54,7 @@ class BenchmarkCatalog:
         domain: str,
         request: GenerationRequest,
     ) -> Problem[Any]:
-        registration = self._require_domain(domain)
+        registration = self._get_required_registration(domain)
         distribution = registration.default_distribution.at(request.difficulty)
         return registration.provider.generate(request=request, distribution=distribution)
 
@@ -60,22 +65,18 @@ class BenchmarkCatalog:
         request: GenerationRequest,
         recipe_id: str,
     ) -> Problem[Any]:
-        registration = self._require_domain(domain)
-        question = self._require_question(registration, domain, recipe_id)
-        distribution = QuestionDistribution.concentrated(question)
-        return registration.provider.generate(request=request, distribution=distribution)
-
-    def _require_domain(self, domain: str) -> BenchmarkRegistration:
+        registration = self._get_required_registration(domain)
         try:
-            return self._registrations[domain]
-        except KeyError as error:
-            raise UnknownDomainError(domain, tuple(self._registrations)) from error
-
-    @staticmethod
-    def _require_question(registration: BenchmarkRegistration, domain: str, recipe_id: str) -> Any:
-        try:
-            return registration.questions[recipe_id]
+            question = registration.questions[recipe_id]
         except KeyError as error:
             raise UnknownQuestionError(
                 domain, recipe_id, tuple(sorted(registration.questions))
             ) from error
+        distribution = QuestionDistribution.concentrated(question)
+        return registration.provider.generate(request=request, distribution=distribution)
+
+    def _get_required_registration(self, domain: str) -> BenchmarkRegistration:
+        try:
+            return self._registrations[domain]
+        except KeyError as error:
+            raise UnknownDomainError(domain, tuple(self._registrations)) from error

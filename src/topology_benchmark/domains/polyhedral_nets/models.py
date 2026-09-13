@@ -4,7 +4,7 @@ from fractions import Fraction
 
 from attrs import field, frozen, validators
 
-from topology_benchmark.core.validation import nonblank, number_range
+from topology_benchmark.core.validation import nonblank, nonempty, number_range
 
 type Point2 = tuple[float, float]
 type Point3 = tuple[Fraction, Fraction, Fraction]
@@ -130,12 +130,14 @@ class Polyhedron3D:
                 raise ValueError("source face references an unknown vertex")
 
 
-@dataclass(frozen=True, slots=True)
+@frozen
 class PolyhedralNet:
     """``hinges`` form the uncut face-spanning tree; other sides are boundary edges."""
 
-    name: str
-    faces: tuple[NetFace, ...]
+    name: str = field(validator=nonblank("a polyhedral net needs a name and at least one face"))
+    faces: tuple[NetFace, ...] = field(
+        validator=nonempty("a polyhedral net needs a name and at least one face")
+    )
     hinges: tuple[EdgePair, ...]
     seam_hints: tuple[EdgePair, ...] = ()
     edge_labels: tuple[tuple[NetEdge, str], ...] = ()
@@ -143,9 +145,7 @@ class PolyhedralNet:
     face_labels: tuple[tuple[int, str], ...] = ()
     corner_angle_labels: tuple[tuple[FaceCorner, str], ...] = ()
 
-    def __post_init__(self) -> None:
-        if not self.name.strip() or not self.faces:
-            raise ValueError("a polyhedral net needs a name and at least one face")
+    def __attrs_post_init__(self) -> None:
         used: set[NetEdge] = set()
         for pair in self.hinges:
             for edge in (pair.first, pair.second):

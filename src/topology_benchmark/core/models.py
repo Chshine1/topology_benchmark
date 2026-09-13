@@ -18,7 +18,7 @@ class Problem[AnswerT]:
     sections: tuple[QuestionSection, ...]
     answer: AnswerT
     seed: int
-    question_kind: str
+    question_id: str
 
 
 @frozen

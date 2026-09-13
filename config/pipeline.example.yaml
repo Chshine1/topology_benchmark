@@ -9,7 +9,7 @@ generation:
     surfaces:
       weight: 2
       # These are internal generator controls, not reported as claims of difficulty.
-      generation_levels: {4: 1, 7: 2, 10: 1}
+      generation_levels: { 4: 1, 7: 2, 10: 1 }
       recipes:
         euler-characteristic: 1
         orientable: 1
@@ -17,7 +17,7 @@ generation:
         path-is-cycle: 1
     polyhedral-nets:
       weight: 2
-      generation_levels: {7: 1, 10: 1}
+      generation_levels: { 7: 1, 10: 1 }
       recipes:
         seam-match: 1
         vertex-partition: 1
@@ -25,14 +25,18 @@ generation:
         curvature-order: 1
     torus-slices:
       weight: 1
-      generation_levels: {8: 1, 10: 1}
+      generation_levels: { 8: 1, 10: 1 }
       recipes:
         completely-unlinked: 1
         linked-pair-count: 1
 
-# This provider makes an offline end-to-end smoke test. Replace it with the block in the README
-# when API credentials are available.
-provider:
-  kind: fixed
-  fixed_response: "FINAL_ANSWER: 0"
+model_provider:
+  base_url: https://provider.example/v1
+  model: provider-model-id
+  api_key_env: BENCHMARK_API_KEY
+  timeout_seconds: 60
+
+evaluation:
   max_retries: 0
+
+# Add the model_provider block documented in the README to run evaluation.

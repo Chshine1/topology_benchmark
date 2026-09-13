@@ -1,6 +1,7 @@
 from collections import deque
 from collections.abc import Callable
-from dataclasses import replace
+
+from attrs import evolve
 
 from topology_benchmark.domains.polyhedral_nets.analysis import PolyhedralNetAnalyzer
 from topology_benchmark.domains.polyhedral_nets.models import (
@@ -145,7 +146,7 @@ class NetObservationBuilder:
                 edges.append((NetEdge(face, item), label))
             else:
                 faces.append((face, label))
-        return replace(
+        return evolve(
             net,
             seam_hints=hints,
             corner_labels=tuple(corners),

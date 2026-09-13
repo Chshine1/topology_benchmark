@@ -1,7 +1,8 @@
-from dataclasses import replace
 from fractions import Fraction
 from itertools import pairwise
 from random import Random
+
+from attrs import evolve
 
 from topology_benchmark import build_container
 from topology_benchmark.core.models import GenerationRequest
@@ -112,7 +113,7 @@ def test_benchmark_is_reproducible_and_wired_into_container() -> None:
     second = _generate_default(benchmark, distribution, 42, 10)
 
     assert first == second
-    assert first.question_kind
+    assert first.question_id
     assert first.question
     assert first.sections
 
@@ -159,18 +160,18 @@ def test_v6_benchmark_uses_certified_sparse_observations_without_answer_leakage(
     problems = [_generate_default(benchmark, distribution, seed, 10) for seed in range(25)]
 
     assert all("diagram drawn to scale" in problem.sections[0].content for problem in problems)
-    assert len({problem.question_kind for problem in problems}) >= 5
-    assert all(problem.question_kind != "highest-vertex" for problem in problems)
-    assert all(problem.question_kind != "isometric" for problem in problems)
-    assert all(problem.question_kind != "corner-coincidence" for problem in problems)
-    assert all(problem.question_kind != "face-relation" for problem in problems)
+    assert len({problem.question_id for problem in problems}) >= 5
+    assert all(problem.question_id != "highest-vertex" for problem in problems)
+    assert all(problem.question_id != "isometric" for problem in problems)
+    assert all(problem.question_id != "corner-coincidence" for problem in problems)
+    assert all(problem.question_id != "face-relation" for problem in problems)
 
 
 def test_renderer_only_shows_v2_labels_selected_by_the_question() -> None:
     generator = RandomPolyhedralNetGenerator()
     folding = generator.generate(GenerationRequest(3, 7), Random(11))
     first_boundary = folding.net.boundary_edges[0]
-    observed = replace(
+    observed = evolve(
         folding.net,
         edge_labels=((first_boundary, "A"),),
     )
@@ -201,7 +202,7 @@ def test_adaptive_hint_makes_an_ambiguous_observation_answerable() -> None:
     assert certificate is not None
     hints, expected = certificate
     assert len(hints) == 1
-    observed = replace(folding.net, seam_hints=hints)
+    observed = evolve(folding.net, seam_hints=hints)
     assert {
         answer(solution) for solution in analyzer.enumerate_locally_convex_pairings(observed)
     } == {expected}
@@ -228,7 +229,7 @@ def test_curvature_questions_show_all_corner_angles_and_have_a_margin() -> None:
     problem = next(
         problem
         for seed in range(100)
-        if (problem := _generate_default(benchmark, distribution, seed, 10)).question_kind
+        if (problem := _generate_default(benchmark, distribution, seed, 10)).question_id
         == "curvature-order"
     )
 
@@ -259,7 +260,7 @@ def test_vertex_partition_replaces_binary_corner_coincidence() -> None:
     problem = next(
         problem
         for seed in range(60)
-        if (problem := _generate_default(benchmark, distribution, seed, 10)).question_kind
+        if (problem := _generate_default(benchmark, distribution, seed, 10)).question_id
         == "vertex-partition"
     )
 

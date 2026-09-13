@@ -50,6 +50,18 @@ def any_member[T](
     return validate
 
 
+def all_members[T](
+    predicate: Callable[[T], bool],
+    *,
+    message: str,
+) -> Validator[tuple[T, ...]]:
+    def validate(_: object, __: Attribute[tuple[T, ...]], value: tuple[T, ...]) -> None:
+        if not all(predicate(item) for item in value):
+            raise ValueError(message)
+
+    return validate
+
+
 def nonblank(message: str) -> Validator[str]:
     def validate(_: object, __: Attribute[str], value: str) -> None:
         if not value.strip():

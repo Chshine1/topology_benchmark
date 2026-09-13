@@ -108,7 +108,7 @@ A `Problem` contains:
 | `sections` | One or more `QuestionSection` values containing supplied question material |
 | `answer` | Exact computed ground truth (`int`, `bool`, `str`, or an integer tuple) |
 | `seed` | Seed needed to reproduce the instance |
-| `question_kind` | Stable kind used for dataset selection and result grouping |
+| `question_id` | Stable registered question ID used for dataset selection and result grouping |
 
 `QuestionSection` contains a MIME `media_type` and its serialized `content`. The generic viewer
 knows how to display image, audio, and text sections; the current surface renderer
@@ -407,7 +407,7 @@ Generate a dataset without making API calls:
 pixi run -e dev python -m topology_benchmark.pipeline config/pipeline.example.yaml --generate-only
 ```
 
-Run the configured provider and score its responses:
+After configuring a model provider, run it and score its responses:
 
 ```powershell
 pixi run -e dev python -m topology_benchmark.pipeline config/pipeline.example.yaml
@@ -419,21 +419,21 @@ Each run has a content-derived identifier and writes a separate directory contai
 | --- | --- |
 | `dataset.public.jsonl` | IDs, domains, questions, and relative media paths |
 | `media/` | The SVG question sections sent to or published for answerers |
-| `ground_truth.private.jsonl` | Answers, question kinds, and generator seeds |
+| `ground_truth.private.jsonl` | Answers, question IDs, and generator seeds |
 | `manifest.private.json` | Resolved root seed, configuration, and realized mix |
 | `predictions.jsonl` | Raw responses, extracted answers, correctness, and API errors |
-| `summary.json` | Overall and per-question-kind accuracy plus failed-request count |
+| `summary.json` | Overall and per-question accuracy plus failed-request count |
 
-The included `fixed` provider is an offline wiring test. For an API with the OpenAI Chat
-Completions request shape, replace the provider block with:
+For an API with the OpenAI Chat Completions request shape, add:
 
 ```yaml
-provider:
-  kind: openai-compatible
+model_provider:
   base_url: https://provider.example/v1
   model: provider-model-id
   api_key_env: BENCHMARK_API_KEY
   timeout_seconds: 60
+
+evaluation:
   max_retries: 2
 ```
 
@@ -441,8 +441,9 @@ Set the key only in the process environment; it is never read from YAML or writt
 artifacts. The adapter sends multimodal `messages` to `POST {base_url}/chat/completions` and asks
 the model to finish with `FINAL_ANSWER: ...`. It currently sends the native SVG as a base64 data
 URL. If an available API accepts only PNG or uses a different schema, implement a `ModelProvider`
-adapter in `pipeline/providers.py`; PNG rasterization should happen at that boundary so the
-generated mathematical instance stays unchanged.
+adapter in `pipeline/model_provider.py`; PNG rasterization should happen at that boundary so the
+generated mathematical instance stays unchanged. Test doubles belong in tests and are injected
+through the same `ModelProvider` protocol; they are not deployable provider choices.
 
 Before connecting a tutor-provided API, obtain its base URL, model identifier, authentication
 method, multimodal request/response example, accepted image MIME types and size limits, rate limits,

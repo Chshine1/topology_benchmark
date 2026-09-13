@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Annotated, Literal, Self, cast
+from typing import Annotated, Self, cast
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -29,21 +29,16 @@ class WeightedConfig(_StrictConfigModel):
         return self
 
 
-class ProviderConfig(_StrictConfigModel):
-    kind: Literal["fixed", "openai-compatible"] = "fixed"
-    model: str = ""
-    base_url: str = ""
+class OpenAICompatibleModelProviderConfig(_StrictConfigModel):
+    model: Annotated[str, Field(min_length=1)]
+    base_url: Annotated[str, Field(min_length=1)]
     api_key_env: str = "BENCHMARK_API_KEY"
-    fixed_response: str = ""
     timeout_seconds: PositiveFloat = 60.0
-    max_retries: Annotated[int, Field(ge=0)] = 2
     extra_headers: dict[str, str] = Field(default_factory=dict)
 
-    @model_validator(mode="after")
-    def _openai_provider_is_complete(self) -> Self:
-        if self.kind == "openai-compatible" and (not self.model or not self.base_url):
-            raise ValueError("an OpenAI-compatible provider needs model and base_url")
-        return self
+
+class EvaluationConfig(_StrictConfigModel):
+    max_retries: Annotated[int, Field(ge=0)] = 2
 
 
 class PipelineConfig(_StrictConfigModel):
@@ -51,7 +46,8 @@ class PipelineConfig(_StrictConfigModel):
     output_dir: Path
     domains: dict[str, WeightedConfig]
     seed: int | None = None
-    provider: ProviderConfig | None = None
+    evaluation: EvaluationConfig = Field(default_factory=EvaluationConfig)
+    model_provider: OpenAICompatibleModelProviderConfig | None = None
 
     @model_validator(mode="after")
     def _has_domains(self) -> Self:
@@ -73,7 +69,8 @@ class _GenerationConfig(_StrictConfigModel):
 class _PipelineDocument(_StrictConfigModel):
     run: _RunConfig = Field(default_factory=_RunConfig)
     generation: _GenerationConfig
-    provider: ProviderConfig | None = None
+    evaluation: EvaluationConfig = Field(default_factory=EvaluationConfig)
+    model_provider: OpenAICompatibleModelProviderConfig | None = None
 
 
 def load_pipeline_config(path: str | Path) -> PipelineConfig:
@@ -88,5 +85,6 @@ def load_pipeline_config(path: str | Path) -> PipelineConfig:
         output_dir=output.resolve(),
         domains=document.generation.domains,
         seed=document.run.seed,
-        provider=document.provider,
+        evaluation=document.evaluation,
+        model_provider=document.model_provider,
     )
