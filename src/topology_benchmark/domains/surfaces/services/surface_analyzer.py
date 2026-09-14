@@ -1,5 +1,4 @@
-from math import gcd
-
+from topology_benchmark.core.structures.disjoint_set import DisjointSet
 from topology_benchmark.domains.surfaces.models import (
     CellularHomology,
     ComponentFacts,
@@ -9,7 +8,10 @@ from topology_benchmark.domains.surfaces.models import (
     SurfacePath,
     SurfacePresentation,
 )
-from topology_benchmark.utils import DisjointSet
+from topology_benchmark.domains.surfaces.services.integer_linear_algebra import (
+    smith_normal_form,
+    unimodular_inverse,
+)
 
 
 class SurfaceAnalyzer:
@@ -62,8 +64,8 @@ class SurfaceAnalyzer:
             relations.append(tuple(chain[index] for index in chords))
 
         relation_matrix = [list(row) for row in zip(*relations, strict=False)]
-        smith, coordinate_map = self._smith_normal_form(relation_matrix, len(chords))
-        inverse_map = self._unimodular_inverse(coordinate_map)
+        smith, coordinate_map = smith_normal_form(relation_matrix, len(chords))
+        inverse_map = unimodular_inverse(coordinate_map)
         smith_basis = tuple(tuple(column) for column in zip(*inverse_map, strict=False))
         nonzero = tuple(value for value in smith if value)
         torsion = tuple(value for value in nonzero if value > 1)
@@ -433,171 +435,6 @@ class SurfaceAnalyzer:
                     mate, sign = paired[edge]
                     occurrence[mate] = (index, sign)
         return basis, occurrence
-
-    @classmethod
-    def _smith_invariants(
-        cls, relations: tuple[tuple[int, ...], ...], dimension: int
-    ) -> tuple[int, ...]:
-        """Smith factors via determinantal divisors (small benchmark matrices)."""
-        if not relations or dimension == 0:
-            return ()
-        matrix = [list(row) for row in zip(*relations, strict=False)]  # cycle rank x faces
-        rank = cls._rational_rank(matrix)
-        if rank == 0:
-            return ()
-        divisors = [1]
-        from itertools import combinations
-
-        for size in range(1, rank + 1):
-            value = 0
-            for rows in combinations(range(len(matrix)), size):
-                for cols in combinations(range(len(matrix[0])), size):
-                    value = gcd(
-                        value,
-                        abs(cls._det([[matrix[r][c] for c in cols] for r in rows])),
-                    )
-            divisors.append(value)
-        return tuple(divisors[i] // divisors[i - 1] for i in range(1, len(divisors)))
-
-    @staticmethod
-    def _smith_normal_form(
-        source: list[list[int]], row_count: int
-    ) -> tuple[tuple[int, ...], tuple[tuple[int, ...], ...]]:
-        """Return D's nonzero diagonal and U where U * source * V = D."""
-
-        column_count = len(source[0]) if source else 0
-        matrix = [row[:] for row in source] if source else [[] for _ in range(row_count)]
-        transform = [[int(i == j) for j in range(row_count)] for i in range(row_count)]
-
-        def swap_rows(first: int, second: int) -> None:
-            matrix[first], matrix[second] = matrix[second], matrix[first]
-            transform[first], transform[second] = transform[second], transform[first]
-
-        def add_row(target: int, source_row: int, multiple: int) -> None:
-            matrix[target] = [
-                value + multiple * other
-                for value, other in zip(matrix[target], matrix[source_row], strict=True)
-            ]
-            transform[target] = [
-                value + multiple * other
-                for value, other in zip(transform[target], transform[source_row], strict=True)
-            ]
-
-        def swap_columns(first: int, second: int) -> None:
-            for row in matrix:
-                row[first], row[second] = row[second], row[first]
-
-        pivot = 0
-        while pivot < row_count and pivot < column_count:
-            locations = [
-                (abs(matrix[row][column]), row, column)
-                for row in range(pivot, row_count)
-                for column in range(pivot, column_count)
-                if matrix[row][column]
-            ]
-            if not locations:
-                break
-            _, row, column = min(locations)
-            swap_rows(pivot, row)
-            swap_columns(pivot, column)
-            while True:
-                changed = False
-                for row in range(pivot + 1, row_count):
-                    if matrix[row][pivot]:
-                        quotient = matrix[row][pivot] // matrix[pivot][pivot]
-                        add_row(row, pivot, -quotient)
-                        if matrix[row][pivot]:
-                            swap_rows(row, pivot)
-                        changed = True
-                        break
-                if changed:
-                    continue
-                for column in range(pivot + 1, column_count):
-                    if matrix[pivot][column]:
-                        quotient = matrix[pivot][column] // matrix[pivot][pivot]
-                        for row in matrix:
-                            row[column] -= quotient * row[pivot]
-                        if matrix[pivot][column]:
-                            swap_columns(column, pivot)
-                        changed = True
-                        break
-                if changed:
-                    continue
-                offender = next(
-                    (
-                        (row, column)
-                        for row in range(pivot + 1, row_count)
-                        for column in range(pivot + 1, column_count)
-                        if matrix[row][column] % matrix[pivot][pivot]
-                    ),
-                    None,
-                )
-                if offender is None:
-                    break
-                add_row(pivot, offender[0], 1)
-            if matrix[pivot][pivot] < 0:
-                add_row(pivot, pivot, -2)
-            pivot += 1
-        diagonal = tuple(
-            abs(matrix[index][index])
-            for index in range(min(row_count, column_count))
-            if matrix[index][index]
-        )
-        return diagonal, tuple(tuple(row) for row in transform)
-
-    @staticmethod
-    def _unimodular_inverse(matrix: tuple[tuple[int, ...], ...]) -> tuple[tuple[int, ...], ...]:
-        from fractions import Fraction
-
-        size = len(matrix)
-        augmented = [
-            [*(Fraction(value) for value in row), *(Fraction(int(i == j)) for j in range(size))]
-            for i, row in enumerate(matrix)
-        ]
-        for column in range(size):
-            pivot = next(row for row in range(column, size) if augmented[row][column])
-            augmented[column], augmented[pivot] = augmented[pivot], augmented[column]
-            divisor = augmented[column][column]
-            augmented[column] = [value / divisor for value in augmented[column]]
-            for row in range(size):
-                if row != column and augmented[row][column]:
-                    multiple = augmented[row][column]
-                    augmented[row] = [
-                        value - multiple * other
-                        for value, other in zip(augmented[row], augmented[column], strict=True)
-                    ]
-        return tuple(tuple(int(value) for value in row[size:]) for row in augmented)
-
-    @staticmethod
-    def _rational_rank(matrix: list[list[int]]) -> int:
-        from fractions import Fraction
-
-        a = [[Fraction(value) for value in row] for row in matrix]
-        rank = 0
-        for column in range(len(a[0]) if a else 0):
-            pivot = next((r for r in range(rank, len(a)) if a[r][column]), None)
-            if pivot is None:
-                continue
-            a[rank], a[pivot] = a[pivot], a[rank]
-            divisor = a[rank][column]
-            a[rank] = [value / divisor for value in a[rank]]
-            for row in range(len(a)):
-                if row != rank and a[row][column]:
-                    factor = a[row][column]
-                    a[row] = [x - factor * y for x, y in zip(a[row], a[rank], strict=False)]
-            rank += 1
-        return rank
-
-    @classmethod
-    def _det(cls, matrix: list[list[int]]) -> int:
-        if not matrix:
-            return 1
-        if len(matrix) == 1:
-            return matrix[0][0]
-        return sum(
-            (-1) ** col * value * cls._det([row[:col] + row[col + 1 :] for row in matrix[1:]])
-            for col, value in enumerate(matrix[0])
-        )
 
     @staticmethod
     def _edge_name(edge: EdgeRef) -> str:

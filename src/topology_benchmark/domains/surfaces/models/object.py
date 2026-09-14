@@ -1,7 +1,7 @@
 from attrs import field, frozen
 
+from topology_benchmark.core.structures.disjoint_set import DisjointSet
 from topology_benchmark.core.validation import nonblank, nonempty, number_range
-from topology_benchmark.utils import DisjointSet
 
 
 @frozen

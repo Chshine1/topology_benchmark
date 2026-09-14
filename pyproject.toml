@@ -35,7 +35,7 @@ lint = "python -m ruff check ."
 format = "python -m ruff format ."
 format-check = "python -m ruff format --check ."
 test = "python -m pytest"
-check = { depends-on = ["typecheck", "lint", "format-check"] }
+check = { depends-on = ["typecheck", "lint", "format-check", "test"] }
 
 [tool.pixi.feature.dev.dependencies]
 pixi-pycharm = ">=0.0.12,<0.0.13"
@@ -45,7 +45,7 @@ matplotlib = ">=3.11.1,<4"
 
 [tool.pyrefly]
 project-includes = ["src", "tests"]
-project-excludes = ["**/__pycache__", ".pixi", "src/topology_benchmark/gluing_examples.py"]
+project-excludes = ["**/__pycache__", ".pixi"]
 python-version = "3.14"
 python-interpreter-path = ".pixi/envs/dev/python.exe"
 

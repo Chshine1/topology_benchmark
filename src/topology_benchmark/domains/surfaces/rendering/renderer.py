@@ -9,9 +9,9 @@ from matplotlib.figure import Figure
 from matplotlib.patches import FancyArrowPatch
 from matplotlib.patches import Polygon as PolygonPatch
 
-from topology_benchmark.core.models import GenerationRequest, QuestionSection
+from topology_benchmark.core.problem.models import GenerationRequest, QuestionSection
 from topology_benchmark.domains.surfaces.models import EdgeRef, SurfacePresentation
-from topology_benchmark.domains.surfaces.ports import SurfaceRepresentation
+from topology_benchmark.domains.surfaces.ports import ISurfaceRepresentation
 from topology_benchmark.domains.surfaces.rendering.config import (
     SurfaceRenderingConfig,
 )
@@ -25,7 +25,7 @@ from topology_benchmark.domains.surfaces.rendering.diagram import (
 )
 
 
-class MatplotlibGluingDiagramRenderer(SurfaceRepresentation):
+class MatplotlibGluingDiagramRenderer(ISurfaceRepresentation):
     def __init__(self, planner: SurfaceDiagramPlanner, config: SurfaceRenderingConfig) -> None:
         self._planner = planner
         self._config = config

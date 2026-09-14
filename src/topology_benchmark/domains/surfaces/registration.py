@@ -4,7 +4,6 @@ from topology_benchmark.domains.surfaces.benchmark import (
     SurfaceBenchmark,
     SurfaceQuestionCatalog,
 )
-from topology_benchmark.domains.surfaces.distributions import SurfaceDefaultQuestionDistribution
 from topology_benchmark.domains.surfaces.generation.config import SurfaceGenerationConfig
 from topology_benchmark.domains.surfaces.generation.generator.morphism import (
     RandomSurfaceMorphismGenerator,
@@ -13,10 +12,11 @@ from topology_benchmark.domains.surfaces.generation.generator.object import (
     RandomSurfacePresentationGenerator,
 )
 from topology_benchmark.domains.surfaces.ports import (
-    SurfaceGenerator,
-    SurfaceMorphismGenerator,
-    SurfaceRepresentation,
+    ISurfaceGenerator,
+    ISurfaceMorphismGenerator,
+    ISurfaceRepresentation,
 )
+from topology_benchmark.domains.surfaces.question_distribution import SurfaceQuestionDistribution
 from topology_benchmark.domains.surfaces.questions import (
     BoundaryChangeQuestion,
     BoundaryComponentsQuestion,
@@ -52,11 +52,11 @@ def add_surface_domain(
     container[SurfaceAnalyzer] = Singleton(SurfaceAnalyzer)
     container[SurfaceDiagramPlanner] = SurfaceDiagramPlanner
     container[RandomSurfacePresentationGenerator] = RandomSurfacePresentationGenerator
-    container[SurfaceGenerator] = RandomSurfacePresentationGenerator
+    container[ISurfaceGenerator] = RandomSurfacePresentationGenerator
     container[RandomSurfaceMorphismGenerator] = RandomSurfaceMorphismGenerator
-    container[SurfaceMorphismGenerator] = RandomSurfaceMorphismGenerator
+    container[ISurfaceMorphismGenerator] = RandomSurfaceMorphismGenerator
     container[MatplotlibGluingDiagramRenderer] = MatplotlibGluingDiagramRenderer
-    container[SurfaceRepresentation] = MatplotlibGluingDiagramRenderer
+    container[ISurfaceRepresentation] = MatplotlibGluingDiagramRenderer
     question_types = (
         EulerCharacteristicQuestion,
         BoundaryComponentsQuestion,
@@ -77,7 +77,7 @@ def add_surface_domain(
     container[SurfaceQuestionCatalog] = SurfaceQuestionCatalog(
         tuple(container.resolve(question_type) for question_type in question_types)
     )
-    container[SurfaceDefaultQuestionDistribution] = SurfaceDefaultQuestionDistribution(
+    container[SurfaceQuestionDistribution] = SurfaceQuestionDistribution(
         container.resolve(SurfaceQuestionCatalog), generation_config
     )
     container[SurfaceBenchmark] = SurfaceBenchmark

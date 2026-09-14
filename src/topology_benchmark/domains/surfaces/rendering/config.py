@@ -5,6 +5,8 @@ from typing import Annotated, Self, cast
 import yaml
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, model_validator
 
+from topology_benchmark.core.errors import ConfigurationError
+
 type ConfigMap = dict[str, object]
 
 
@@ -16,7 +18,12 @@ type YamlTuple[T] = Annotated[tuple[T, ...], BeforeValidator(_yaml_tuple)]
 
 
 class _StrictConfigModel(BaseModel):
-    model_config = ConfigDict(frozen=True, strict=True, extra="forbid")
+    model_config = ConfigDict(
+        frozen=True,
+        strict=True,
+        extra="forbid",
+        allow_inf_nan=False,
+    )
 
 
 class CanvasConfig(_StrictConfigModel):
@@ -127,7 +134,7 @@ def _read_yaml(path: Path) -> ConfigMap:
     with path.open(encoding="utf-8") as stream:
         value = cast(object, yaml.safe_load(stream))
     if not isinstance(value, dict) or not all(isinstance(key, str) for key in value):
-        raise ValueError(f"{path} must be a YAML mapping with string keys")
+        raise ConfigurationError(f"{path} must be a YAML mapping with string keys")
     return cast(ConfigMap, value)
 
 

@@ -1,24 +1,17 @@
-from __future__ import annotations
+from typing import Protocol
 
-from random import Random
-from typing import TYPE_CHECKING, Protocol
-
-from topology_benchmark.core.models import GenerationRequest
-from topology_benchmark.core.protocols import Representation
-from topology_benchmark.domains.torus_slices.models import TorusSliceObservation
-
-if TYPE_CHECKING:
-    from topology_benchmark.domains.torus_slices.generation import TorusGenerationSpec
+from topology_benchmark.core.generation.object_generator import IConditionalGenerator
+from topology_benchmark.core.presentation.representation import IRepresentation
+from topology_benchmark.domains.torus_slices.generation.context import TorusGenerationContext
+from topology_benchmark.domains.torus_slices.models.torus import TorusSliceObservation
 
 
-class TorusSliceGenerator(Protocol):
-    def generate(
-        self,
-        request: GenerationRequest,
-        rng: Random,
-        spec: TorusGenerationSpec,
-    ) -> TorusSliceObservation: ...
+class ITorusSliceGenerator(
+    IConditionalGenerator[TorusGenerationContext, TorusSliceObservation],
+    Protocol,
+):
+    pass
 
 
-class TorusSliceRepresentation(Representation[TorusSliceObservation], Protocol):
+class ITorusSliceRepresentation(IRepresentation[TorusSliceObservation], Protocol):
     pass

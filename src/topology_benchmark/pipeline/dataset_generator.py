@@ -4,10 +4,10 @@ import secrets
 from random import Random
 
 from topology_benchmark.application.catalog import BenchmarkCatalog
-from topology_benchmark.core.models import GenerationRequest, Problem
-from topology_benchmark.pipeline.artifacts.dataset_writer import DatasetArtifactWriter
-from topology_benchmark.pipeline.artifacts.models import GeneratedBenchmarkRun, GeneratedItem
+from topology_benchmark.core.problem.models import GenerationRequest, Problem
 from topology_benchmark.pipeline.config import PipelineConfig
+from topology_benchmark.pipeline.dataset.artifact_writer import DatasetArtifactWriter
+from topology_benchmark.pipeline.dataset.models import GeneratedBenchmarkRun, GeneratedItem
 
 
 class BenchmarkDatasetGenerator:

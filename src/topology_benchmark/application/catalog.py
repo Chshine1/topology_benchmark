@@ -2,21 +2,21 @@ from dataclasses import dataclass
 from typing import Any
 
 from topology_benchmark.application.errors import UnknownDomainError, UnknownQuestionError
-from topology_benchmark.core.models import GenerationRequest, Problem
-from topology_benchmark.core.protocols import ProblemProvider
-from topology_benchmark.core.recipes import (
+from topology_benchmark.core.problem.models import GenerationRequest, Problem
+from topology_benchmark.core.problem.provider import IProblemProvider
+from topology_benchmark.core.problem.question_distribution import (
+    IQuestionDistributionResolver,
     QuestionCatalog,
     QuestionDistribution,
-    QuestionDistributionResolver,
 )
 
 
 @dataclass(frozen=True, slots=True)
 class BenchmarkRegistration:
     id: str
-    provider: ProblemProvider[Any, Any]
+    provider: IProblemProvider[Any, Any]
     questions: QuestionCatalog[Any]
-    default_distribution: QuestionDistributionResolver[Any]
+    default_distribution: IQuestionDistributionResolver[Any]
 
 
 class BenchmarkCatalog:

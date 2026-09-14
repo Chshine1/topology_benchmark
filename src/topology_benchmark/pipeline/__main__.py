@@ -9,13 +9,15 @@ from topology_benchmark.application.errors import (
     BenchmarkApplicationError,
     InvalidApplicationRequestError,
 )
-from topology_benchmark.core.errors import GenerationError
+from topology_benchmark.core.errors import ConfigurationError, GenerationError
 from topology_benchmark.pipeline import (
     BenchmarkDatasetGenerator,
     load_pipeline_config,
 )
+from topology_benchmark.pipeline.evaluation.model_provider import (
+    OpenAICompatibleModelProviderCredentials,
+)
 from topology_benchmark.pipeline.evaluator import BenchmarkEvaluator
-from topology_benchmark.pipeline.model_provider import OpenAICompatibleModelProviderCredentials
 from topology_benchmark.pipeline.registration import add_model_evaluation, add_pipeline_domain
 
 
@@ -48,7 +50,13 @@ def main() -> None:
                 OpenAICompatibleModelProviderCredentials(api_key),
             )
             evaluator = container.resolve(BenchmarkEvaluator)
-    except (OSError, ValidationError, yaml.YAMLError, BenchmarkApplicationError) as error:
+    except (
+        OSError,
+        ConfigurationError,
+        ValidationError,
+        yaml.YAMLError,
+        BenchmarkApplicationError,
+    ) as error:
         parser.error(str(error))
         return
     try:

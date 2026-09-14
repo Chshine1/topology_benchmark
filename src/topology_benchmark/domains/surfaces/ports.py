@@ -1,11 +1,9 @@
 from random import Random
 from typing import Protocol, override
 
-from topology_benchmark.core.models import GenerationRequest, QuestionSection
-from topology_benchmark.core.protocols import (
-    ConditionalGenerator,
-    Representation,
-)
+from topology_benchmark.core.generation.object_generator import IConditionalGenerator
+from topology_benchmark.core.presentation.representation import IRepresentation
+from topology_benchmark.core.problem.models import GenerationRequest, QuestionSection
 from topology_benchmark.domains.surfaces.generation.context.morphism import (
     SurfaceMorphismGenerationContext,
 )
@@ -17,21 +15,21 @@ from topology_benchmark.domains.surfaces.models import EdgeRef, SurfaceMorphism,
 type SurfaceAnswer = int | str | bool | tuple[int, ...]
 
 
-class SurfaceGenerator(
-    ConditionalGenerator[SurfaceObjectGenerationContext, SurfacePresentation],
+class ISurfaceGenerator(
+    IConditionalGenerator[SurfaceObjectGenerationContext, SurfacePresentation],
     Protocol,
 ):
     pass
 
 
-class SurfaceMorphismGenerator(
-    ConditionalGenerator[SurfaceMorphismGenerationContext, SurfaceMorphism],
+class ISurfaceMorphismGenerator(
+    IConditionalGenerator[SurfaceMorphismGenerationContext, SurfaceMorphism],
     Protocol,
 ):
     pass
 
 
-class SurfaceRepresentation(Representation[SurfacePresentation], Protocol):
+class ISurfaceRepresentation(IRepresentation[SurfacePresentation], Protocol):
     @override
     def render(
         self,

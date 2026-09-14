@@ -1,9 +1,9 @@
 from typing import override
 
-from topology_benchmark.core.models import GenerationRequest, Problem
-from topology_benchmark.core.probability import SamplingSession
-from topology_benchmark.core.protocols import ProblemProvider
-from topology_benchmark.core.recipes import (
+from topology_benchmark.core.probability.sampling import SamplingSession
+from topology_benchmark.core.problem.models import GenerationRequest, Problem
+from topology_benchmark.core.problem.provider import IProblemProvider
+from topology_benchmark.core.problem.question_distribution import (
     QuestionCatalog,
     QuestionDistribution,
 )
@@ -16,7 +16,7 @@ class SurfaceQuestionCatalog(QuestionCatalog[SurfaceQuestion]):
     pass
 
 
-class SurfaceBenchmark(ProblemProvider[SurfaceQuestion, SurfaceAnswer]):
+class SurfaceBenchmark(IProblemProvider[SurfaceQuestion, SurfaceAnswer]):
     def __init__(
         self,
         generation_config: SurfaceGenerationConfig,

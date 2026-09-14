@@ -2,8 +2,8 @@ from random import Random
 from typing import override
 
 from topology_benchmark.core.errors import GenerationExhaustedError
-from topology_benchmark.core.models import GenerationRequest
-from topology_benchmark.core.probability import TruncatedGeometricDistribution
+from topology_benchmark.core.probability.distribution import TruncatedGeometricDistribution
+from topology_benchmark.core.problem.models import GenerationRequest
 from topology_benchmark.domains.surfaces.generation.config import SurfaceGenerationConfig
 from topology_benchmark.domains.surfaces.generation.context.morphism import (
     AnnulusClosureCondition,
@@ -22,11 +22,11 @@ from topology_benchmark.domains.surfaces.models import (
     SurfaceMorphism,
     SurfacePresentation,
 )
-from topology_benchmark.domains.surfaces.ports import SurfaceMorphismGenerator
+from topology_benchmark.domains.surfaces.ports import ISurfaceMorphismGenerator
 from topology_benchmark.domains.surfaces.services import SurfaceAnalyzer
 
 
-class RandomSurfaceMorphismGenerator(SurfaceMorphismGenerator):
+class RandomSurfaceMorphismGenerator(ISurfaceMorphismGenerator):
     def __init__(self, config: SurfaceGenerationConfig, analyzer: SurfaceAnalyzer) -> None:
         self.config = config
         self._analyzer = analyzer

@@ -4,7 +4,7 @@ from typing import Annotated, Self, cast
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-type PositiveFloat = Annotated[float, Field(gt=0)]
+type PositiveFloat = Annotated[float, Field(gt=0, allow_inf_nan=False)]
 type Difficulty = Annotated[int, Field(ge=1, le=10)]
 
 
@@ -14,6 +14,7 @@ class _StrictConfigModel(BaseModel):
         strict=True,
         extra="forbid",
         validate_default=True,
+        allow_inf_nan=False,
     )
 
 

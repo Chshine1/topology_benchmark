@@ -1,29 +1,30 @@
-import re
 from collections import Counter
-from typing import Any
 
-from topology_benchmark.core.models import QuestionSection
-from topology_benchmark.pipeline.artifacts.evaluation_writer import EvaluationArtifactWriter
-from topology_benchmark.pipeline.artifacts.models import (
+from topology_benchmark.core.problem.models import QuestionSection
+from topology_benchmark.pipeline.config import EvaluationConfig
+from topology_benchmark.pipeline.dataset.models import GeneratedBenchmarkRun
+from topology_benchmark.pipeline.evaluation.answer_scorer import IAnswerScorer
+from topology_benchmark.pipeline.evaluation.artifact_writer import EvaluationArtifactWriter
+from topology_benchmark.pipeline.evaluation.model_provider import IModelProvider
+from topology_benchmark.pipeline.evaluation.models import (
     BenchmarkEvaluation,
-    GeneratedBenchmarkRun,
     ModelPrediction,
     QuestionScore,
 )
-from topology_benchmark.pipeline.config import EvaluationConfig
-from topology_benchmark.pipeline.model_provider import ModelProvider
 
 
 class BenchmarkEvaluator:
     def __init__(
         self,
         config: EvaluationConfig,
-        model_provider: ModelProvider,
+        model_provider: IModelProvider,
         artifact_writer: EvaluationArtifactWriter,
+        answer_scorer: IAnswerScorer,
     ) -> None:
         self._config = config
         self._model_provider = model_provider
         self._artifact_writer = artifact_writer
+        self._answer_scorer = answer_scorer
 
     def evaluate(self, generated: GeneratedBenchmarkRun) -> None:
         predictions = []
@@ -31,7 +32,7 @@ class BenchmarkEvaluator:
         totals = Counter[str]()
         for item in generated.items:
             response, error = self._answer(item.problem.question, item.problem.sections)
-            is_correct = error is None and self._score_answer(item.problem.answer, response)
+            is_correct = error is None and self._answer_scorer.score(item.problem.answer, response)
             key = f"{item.domain}/{item.problem.question_id}"
             totals[key] += 1
             correct[key] += int(is_correct)
@@ -39,7 +40,7 @@ class BenchmarkEvaluator:
                 ModelPrediction(
                     item.item_id,
                     response,
-                    self._extract_final_answer(response),
+                    self._answer_scorer.extract(response),
                     is_correct,
                     error,
                 )
@@ -52,22 +53,6 @@ class BenchmarkEvaluator:
         )
         self._artifact_writer.write(generated, evaluation)
 
-    @staticmethod
-    def _extract_final_answer(response: str) -> str:
-        matches = re.findall(r"(?im)^\s*FINAL_ANSWER\s*:\s*(.*?)\s*$", response)
-        return matches[-1] if matches else response.strip()
-
-    @classmethod
-    def _score_answer(cls, expected: Any, response: str) -> bool:
-        candidate = cls._extract_final_answer(response)
-        if isinstance(expected, bool):
-            normalized = candidate.casefold().strip(" .")
-            aliases = {True: {"true", "yes"}, False: {"false", "no"}}
-            return normalized in aliases[expected]
-        if isinstance(expected, int):
-            return bool(re.fullmatch(r"[+-]?\d+", candidate.strip())) and int(candidate) == expected
-        return _normalize_text(candidate) == _normalize_text(str(expected))
-
     def _answer(
         self, question: str, sections: tuple[QuestionSection, ...]
     ) -> tuple[str, str | None]:
@@ -79,6 +64,3 @@ class BenchmarkEvaluator:
             except Exception as caught:  # A provider failure is an item result, not a lost run.
                 error = f"{type(caught).__name__}: {caught}"
         return response, error
-
-def _normalize_text(value: str) -> str:
-    return re.sub(r"\s+", "", value).casefold().strip(".")

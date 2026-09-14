@@ -6,16 +6,15 @@ import pytest
 
 from topology_benchmark import build_container
 from topology_benchmark.application.configuration import SURFACE_GENERATION_DEFAULTS
-from topology_benchmark.core.models import GenerationRequest
-from topology_benchmark.core.probability import (
+from topology_benchmark.core.probability.distribution import (
     FiniteDistribution,
-    SamplingSession,
     TruncatedGeometricDistribution,
     WeightedValue,
-    interpolate_anchors,
 )
+from topology_benchmark.core.probability.interpolation import interpolate_anchors
+from topology_benchmark.core.probability.sampling import SamplingSession
+from topology_benchmark.core.problem.models import GenerationRequest
 from topology_benchmark.domains.surfaces.benchmark import SurfaceBenchmark
-from topology_benchmark.domains.surfaces.distributions import SurfaceDefaultQuestionDistribution
 from topology_benchmark.domains.surfaces.generation.config import (
     SurfaceGenerationConfig,
     load_generation_config,
@@ -32,7 +31,8 @@ from topology_benchmark.domains.surfaces.generation.generator.morphism import (
 from topology_benchmark.domains.surfaces.generation.generator.object import (
     RandomSurfacePresentationGenerator,
 )
-from topology_benchmark.domains.surfaces.ports import SurfaceGenerator, SurfaceMorphismGenerator
+from topology_benchmark.domains.surfaces.ports import ISurfaceGenerator, ISurfaceMorphismGenerator
+from topology_benchmark.domains.surfaces.question_distribution import SurfaceQuestionDistribution
 from topology_benchmark.domains.surfaces.services import SurfaceAnalyzer
 
 
@@ -63,7 +63,7 @@ def test_difficulty_profiles_interpolate_smoothly() -> None:
 
 def test_default_question_distribution_follows_configured_cohort_weights() -> None:
     config = load_generation_config(SURFACE_GENERATION_DEFAULTS)
-    distribution = build_container().resolve(SurfaceDefaultQuestionDistribution)
+    distribution = build_container().resolve(SurfaceQuestionDistribution)
 
     def cohort(difficulty: int) -> Counter[str]:
         return Counter(distribution.at(difficulty).sample(Random(seed)).id for seed in range(2000))
@@ -155,8 +155,8 @@ def test_generation_yaml_is_layered_and_injected() -> None:
     container = build_container(generation_config=override)
     config = container.resolve(SurfaceGenerationConfig)
     benchmark = container.resolve(SurfaceBenchmark)
-    generator = container.resolve(SurfaceGenerator)
-    morphism_generator = container.resolve(SurfaceMorphismGenerator)
+    generator = container.resolve(ISurfaceGenerator)
+    morphism_generator = container.resolve(ISurfaceMorphismGenerator)
 
     assert config.profile_version == "test-object-profile"
     assert config.difficulty.path_maximum.at(10) == 7
@@ -166,7 +166,7 @@ def test_generation_yaml_is_layered_and_injected() -> None:
     assert morphism_generator.config is config
     problem = benchmark.generate(
         request=GenerationRequest(3, 1),
-        distribution=container.resolve(SurfaceDefaultQuestionDistribution).at(1),
+        distribution=container.resolve(SurfaceQuestionDistribution).at(1),
     )
     assert problem.question_id
     assert problem.sections

@@ -5,12 +5,12 @@ from attrs import exceptions
 from pydantic import ValidationError
 
 from topology_benchmark.application.configuration import SURFACE_RENDERING_DEFAULTS
-from topology_benchmark.core.models import GenerationRequest
-from topology_benchmark.core.probability import (
+from topology_benchmark.core.probability.distribution import (
     BernoulliDistribution,
     FiniteDistribution,
     WeightedValue,
 )
+from topology_benchmark.core.problem.models import GenerationRequest
 from topology_benchmark.domains.surfaces.models import Polygon, SurfacePresentation
 from topology_benchmark.domains.surfaces.rendering.config import load_rendering_config
 from topology_benchmark.pipeline.config import load_pipeline_config

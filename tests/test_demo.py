@@ -2,8 +2,10 @@ import json
 
 from topology_benchmark import BenchmarkCatalog, build_container
 from topology_benchmark.application.demo import DemoApplication
-from topology_benchmark.core.models import GenerationRequest
-from topology_benchmark.domains.polyhedral_nets.analysis import PolyhedralNetAnalyzer
+from topology_benchmark.core.problem.models import GenerationRequest
+from topology_benchmark.domains.polyhedral_nets.services.polyhedral_net_analyzer import (
+    PolyhedralNetAnalyzer,
+)
 from topology_benchmark.domains.surfaces.generation.generator.morphism import (
     RandomSurfaceMorphismGenerator,
 )
@@ -11,8 +13,12 @@ from topology_benchmark.domains.surfaces.generation.generator.object import (
     RandomSurfacePresentationGenerator,
 )
 from topology_benchmark.domains.surfaces.services import SurfaceAnalyzer
-from topology_benchmark.domains.torus_slices.analysis import TorusFamilyAnalyzer
-from topology_benchmark.domains.torus_slices.generation import RandomTorusSliceGenerator
+from topology_benchmark.domains.torus_slices.generation.torus_slice_generator import (
+    RandomTorusSliceGenerator,
+)
+from topology_benchmark.domains.torus_slices.services.torus_family_analyzer import (
+    TorusFamilyAnalyzer,
+)
 
 
 def test_demo_serializes_any_problem_provider() -> None:
@@ -28,7 +34,8 @@ def test_demo_serializes_any_problem_provider() -> None:
 
 
 def test_demo_page_has_regeneration_and_generic_media_rendering() -> None:
-    page = DemoApplication.index_html().decode()
+    container = build_container()
+    page = DemoApplication(container.resolve(BenchmarkCatalog), "surfaces").index_html().decode()
 
     assert "New random problem" in page
     assert '<select id="domain">' in page

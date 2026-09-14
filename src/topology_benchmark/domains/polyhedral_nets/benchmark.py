@@ -1,36 +1,36 @@
 from typing import override
 
 from topology_benchmark.core.errors import GenerationExhaustedError
-from topology_benchmark.core.models import GenerationRequest, Problem
-from topology_benchmark.core.probability import SamplingSession
-from topology_benchmark.core.protocols import ProblemProvider
-from topology_benchmark.core.recipes import (
+from topology_benchmark.core.probability.sampling import SamplingSession
+from topology_benchmark.core.problem.models import GenerationRequest, Problem
+from topology_benchmark.core.problem.provider import IProblemProvider
+from topology_benchmark.core.problem.question_distribution import (
     QuestionCatalog,
     QuestionDistribution,
 )
-from topology_benchmark.domains.polyhedral_nets.ports import (
-    PolyhedralNetGenerator,
-    PolyhedralNetRepresentation,
-)
-from topology_benchmark.domains.polyhedral_nets.question_services import (
+from topology_benchmark.domains.polyhedral_nets.generation.completion import (
     ObservableCompletionEnumerator,
+)
+from topology_benchmark.domains.polyhedral_nets.ports import (
+    IPolyhedralNetGenerator,
+    IPolyhedralNetRepresentation,
     PolyhedralAnswer,
 )
-from topology_benchmark.domains.polyhedral_nets.questions import PolyhedralQuestion
+from topology_benchmark.domains.polyhedral_nets.questions.question import IPolyhedralQuestion
 
 
-class PolyhedralQuestionCatalog(QuestionCatalog[PolyhedralQuestion]):
+class PolyhedralQuestionCatalog(QuestionCatalog[IPolyhedralQuestion]):
     pass
 
 
-class PolyhedralNetsBenchmark(ProblemProvider[PolyhedralQuestion, PolyhedralAnswer]):
+class PolyhedralNetsBenchmark(IProblemProvider[IPolyhedralQuestion, PolyhedralAnswer]):
     profile_version = "polyhedral-nets-v8"
 
     def __init__(
         self,
-        generator: PolyhedralNetGenerator,
+        generator: IPolyhedralNetGenerator,
         completions: ObservableCompletionEnumerator,
-        representation: PolyhedralNetRepresentation,
+        representation: IPolyhedralNetRepresentation,
     ) -> None:
         self._generator = generator
         self._completions = completions
@@ -41,7 +41,7 @@ class PolyhedralNetsBenchmark(ProblemProvider[PolyhedralQuestion, PolyhedralAnsw
         self,
         *,
         request: GenerationRequest,
-        distribution: QuestionDistribution[PolyhedralQuestion],
+        distribution: QuestionDistribution[IPolyhedralQuestion],
     ) -> Problem[PolyhedralAnswer]:
         sampling = SamplingSession(request.seed, self.profile_version)
         question = distribution.sample(sampling.rng("question-selection"))

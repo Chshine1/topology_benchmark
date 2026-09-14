@@ -9,8 +9,8 @@ from topology_benchmark.application.bootstrap import build_container
 from topology_benchmark.application.catalog import BenchmarkCatalog
 from topology_benchmark.application.demo import serve_demo
 from topology_benchmark.application.errors import BenchmarkApplicationError
-from topology_benchmark.core.errors import GenerationError
-from topology_benchmark.core.models import GenerationRequest
+from topology_benchmark.core.errors import ConfigurationError, GenerationError
+from topology_benchmark.core.problem.models import GenerationRequest
 
 
 def main() -> None:
@@ -39,11 +39,12 @@ def main() -> None:
             rendering_config=args.rendering_config,
             generation_config=args.generation_config,
         )
-    except (OSError, ValidationError, yaml.YAMLError) as error:
+    except (OSError, ConfigurationError, ValidationError, yaml.YAMLError) as error:
         parser.error(str(error))
         return
+    catalog = container.resolve(BenchmarkCatalog)
     try:
-        catalog = container.resolve(BenchmarkCatalog)
+        catalog.require_domain(args.domain)
     except BenchmarkApplicationError as error:
         parser.error(str(error))
         return
@@ -60,6 +61,9 @@ def main() -> None:
             domain=args.domain,
             request=GenerationRequest(seed=args.seed, difficulty=args.difficulty),
         )
+    except BenchmarkApplicationError as error:
+        parser.error(str(error))
+        return
     except GenerationError as error:
         parser.exit(1, f"generation failed: {error}\n")
         return

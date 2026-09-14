@@ -5,12 +5,12 @@ from typing import Annotated, Literal, Self, cast
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from topology_benchmark.core.probability import (
+from topology_benchmark.core.errors import ConfigurationError
+from topology_benchmark.core.probability.distribution import (
     FiniteDistribution,
     WeightedValue,
-    blended_weight,
-    interpolate_anchors,
 )
+from topology_benchmark.core.probability.interpolation import blended_weight, interpolate_anchors
 from topology_benchmark.domains.surfaces.generation.context.morphism import (
     AnnulusClosureCondition,
     AttachmentCondition,
@@ -143,7 +143,9 @@ class SurfaceGenerationConfig(_StrictConfigModel):
         try:
             outcomes = self.object_laws[question_id]
         except KeyError as error:
-            raise ValueError(f"no surface-object law is configured for {question_id!r}") from error
+            raise ConfigurationError(
+                f"no surface-object law is configured for {question_id!r}"
+            ) from error
         return FiniteDistribution(
             tuple(
                 WeightedValue(
@@ -161,7 +163,7 @@ class SurfaceGenerationConfig(_StrictConfigModel):
         try:
             return self.morphism_laws[question_id]
         except KeyError as error:
-            raise ValueError(
+            raise ConfigurationError(
                 f"no surface-morphism law is configured for {question_id!r}"
             ) from error
 
@@ -359,7 +361,7 @@ def _read_yaml(path: Path) -> ConfigMap:
     with path.open(encoding="utf-8") as stream:
         value = cast(object, yaml.safe_load(stream))
     if not isinstance(value, dict) or not all(isinstance(key, str) for key in value):
-        raise ValueError(f"{path} must be a YAML mapping with string keys")
+        raise ConfigurationError(f"{path} must be a YAML mapping with string keys")
     return cast(ConfigMap, value)
 
 

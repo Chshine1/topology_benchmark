@@ -1,28 +1,34 @@
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import override
+from typing import cast, override
 
 import pytest
 
 from topology_benchmark.application.bootstrap import build_container
 from topology_benchmark.application.errors import UnknownDomainError, UnknownQuestionError
-from topology_benchmark.core.models import QuestionSection
+from topology_benchmark.core.problem.models import QuestionSection
 from topology_benchmark.pipeline import (
     BenchmarkDatasetGenerator,
+    OpenAICompatibleModelProviderConfig,
     PipelineConfig,
     load_pipeline_config,
 )
-from topology_benchmark.pipeline.evaluator import BenchmarkEvaluator
-from topology_benchmark.pipeline.model_provider import (
-    ModelProvider,
+from topology_benchmark.pipeline.config import WeightedConfig
+from topology_benchmark.pipeline.dataset.artifact_writer import DatasetArtifactWriter
+from topology_benchmark.pipeline.evaluation import model_provider as model_provider_module
+from topology_benchmark.pipeline.evaluation.answer_scorer import AnswerScorer
+from topology_benchmark.pipeline.evaluation.model_provider import (
+    IModelProvider,
+    OpenAICompatibleModelProvider,
     OpenAICompatibleModelProviderCredentials,
 )
+from topology_benchmark.pipeline.evaluator import BenchmarkEvaluator
 from topology_benchmark.pipeline.registration import add_pipeline_domain
 
 
 @dataclass(slots=True)
-class FixedModelProvider(ModelProvider):
+class FixedModelProvider(IModelProvider):
     response: str
 
     @override
@@ -34,7 +40,7 @@ class FixedModelProvider(ModelProvider):
 def _evaluate_with_fixed_provider(config: PipelineConfig) -> Path:
     container = build_container()
     add_pipeline_domain(container, config)
-    container[ModelProvider] = FixedModelProvider("FINAL_ANSWER: 0")
+    container[IModelProvider] = FixedModelProvider("FINAL_ANSWER: 0")
     container[BenchmarkEvaluator] = BenchmarkEvaluator
     generated = container.resolve(BenchmarkDatasetGenerator).generate()
     container.resolve(BenchmarkEvaluator).evaluate(generated)
@@ -85,17 +91,99 @@ generation:
 
 def test_answer_extraction_and_typed_scoring() -> None:
     response = "Working here.\nFINAL_ANSWER: yes"
-    extract_final_answer = BenchmarkEvaluator._extract_final_answer
-    score_answer = BenchmarkEvaluator._score_answer
-    assert extract_final_answer(response) == "yes"
-    assert score_answer(True, response)
-    assert score_answer(3, "FINAL_ANSWER: 3")
-    assert not score_answer(3, "FINAL_ANSWER: 3.0")
+    scorer = AnswerScorer()
+    assert scorer.extract(response) == "yes"
+    assert scorer.score(True, response)
+    assert scorer.score(3, "FINAL_ANSWER: 3")
+    assert not scorer.score(3, "FINAL_ANSWER: 3.0")
 
 
 def test_model_provider_credentials_reject_a_blank_api_key() -> None:
     with pytest.raises(ValueError, match="cannot be blank"):
         OpenAICompatibleModelProviderCredentials("   ")
+
+
+def test_model_provider_dispatches_text_and_image_sections(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            pass
+
+        def read(self) -> bytes:
+            return b'{"choices":[{"message":{"content":"ok"}}]}'
+
+    def urlopen(request, timeout: float):
+        captured["body"] = json.loads(request.data)
+        captured["timeout"] = timeout
+        return Response()
+
+    monkeypatch.setattr(model_provider_module, "urlopen", urlopen)
+    provider = OpenAICompatibleModelProvider(
+        OpenAICompatibleModelProviderConfig(model="test", base_url="https://example.invalid/v1"),
+        OpenAICompatibleModelProviderCredentials("secret"),
+    )
+
+    assert (
+        provider.answer(
+            "question",
+            (
+                QuestionSection("text/plain", "context"),
+                QuestionSection("image/svg+xml", "<svg/>"),
+            ),
+        )
+        == "ok"
+    )
+    body = cast(dict[str, object], captured["body"])
+    messages = cast(list[dict[str, object]], body["messages"])
+    message = cast(list[dict[str, object]], messages[0]["content"])
+    assert [part["type"] for part in message] == ["text", "text", "image_url"]
+    assert captured["timeout"] == 60.0
+
+    with pytest.raises(ValueError, match="does not support"):
+        provider.answer("question", (QuestionSection("audio/wav", "content"),))
+
+
+def test_dataset_writer_removes_failed_staging_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = PipelineConfig(
+        size=1,
+        output_dir=tmp_path,
+        domains={"surfaces": WeightedConfig()},
+        seed=1,
+    )
+
+    def fail(*_args: object) -> None:
+        raise OSError("write failed")
+
+    monkeypatch.setattr(DatasetArtifactWriter, "_write_dataset", fail)
+    with pytest.raises(OSError, match="write failed"):
+        DatasetArtifactWriter().write(config, 1, ())
+
+    assert not tuple(tmp_path.iterdir())
+
+
+def test_dataset_writer_rejects_an_existing_reproducible_run(tmp_path: Path) -> None:
+    config = PipelineConfig(
+        size=1,
+        output_dir=tmp_path,
+        domains={"surfaces": WeightedConfig()},
+        seed=1,
+    )
+    writer = DatasetArtifactWriter()
+    writer.write(config, 1, ())
+
+    with pytest.raises(FileExistsError, match="benchmark run already exists"):
+        writer.write(config, 1, ())
+
+
+def test_pipeline_config_rejects_nonfinite_weights() -> None:
+    with pytest.raises(ValueError):
+        WeightedConfig(weight=float("inf"))
 
 
 def test_pipeline_rejects_unregistered_domains_and_recipes_before_generation(

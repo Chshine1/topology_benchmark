@@ -1,0 +1,6 @@
+from topology_benchmark.core.problem.question_distribution import DifficultyQuestionDistribution
+from topology_benchmark.domains.polyhedral_nets.questions.question import IPolyhedralQuestion
+
+
+class PolyhedralQuestionDistribution(DifficultyQuestionDistribution[IPolyhedralQuestion]):
+    pass

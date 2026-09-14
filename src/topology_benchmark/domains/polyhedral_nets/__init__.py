@@ -1,5 +1,4 @@
-from .analysis import NetAnalysis, PolyhedralNetAnalyzer, VertexType
-from .models import (
+from .models.net import (
     EdgePair,
     FaceCorner,
     NetEdge,
@@ -7,8 +6,8 @@ from .models import (
     PolyhedralFolding,
     PolyhedralNet,
     Polyhedron3D,
-    RegularFace,
 )
+from .services.polyhedral_net_analyzer import NetAnalysis, PolyhedralNetAnalyzer, VertexType
 
 __all__ = [
     "EdgePair",
@@ -20,6 +19,5 @@ __all__ = [
     "PolyhedralNet",
     "PolyhedralNetAnalyzer",
     "Polyhedron3D",
-    "RegularFace",
     "VertexType",
 ]

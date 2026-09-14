@@ -4,16 +4,20 @@ from random import Random
 import pytest
 
 from topology_benchmark import build_container
-from topology_benchmark.core.models import GenerationRequest
+from topology_benchmark.core.probability.sampling import SamplingSession
+from topology_benchmark.core.problem.models import GenerationRequest
 from topology_benchmark.domains.torus_slices import (
+    ChainLinkedTorusFamily,
+    CompletelyLinkedTorusFamily,
     EllipticTorus,
+    PairLinkedTorusFamily,
     RandomTorusSliceGenerator,
     RoundCircle,
     TorusFamilyAnalyzer,
-    TorusGenerationSpec,
+    TorusGenerationContext,
 )
 from topology_benchmark.domains.torus_slices.benchmark import TorusSlicesBenchmark
-from topology_benchmark.domains.torus_slices.distributions import TorusDefaultQuestionDistribution
+from topology_benchmark.domains.torus_slices.question_distribution import TorusQuestionDistribution
 
 
 def test_disk_intersection_computes_hopf_link_and_unlink() -> None:
@@ -29,9 +33,13 @@ def test_disk_intersection_computes_hopf_link_and_unlink() -> None:
 def test_generator_certifies_disjoint_tubes_and_reproducible_slices() -> None:
     generator = RandomTorusSliceGenerator(TorusFamilyAnalyzer())
     request = GenerationRequest(31, 9)
-    spec = TorusGenerationSpec(4, True, "pairs")
-    first = generator.generate(request, Random(31), spec)
-    second = generator.generate(request, Random(31), spec)
+    condition = PairLinkedTorusFamily(4)
+    first = generator.generate_for(
+        TorusGenerationContext(request, condition, SamplingSession(31, "test"))
+    )
+    second = generator.generate_for(
+        TorusGenerationContext(request, condition, SamplingSession(31, "test"))
+    )
 
     assert first == second
     assert TorusFamilyAnalyzer.certify_disjoint(first.family)
@@ -50,10 +58,9 @@ def test_elliptic_torus_sweeps_a_rotated_ellipse_around_a_circle() -> None:
 
 def test_connected_chain_links_all_consecutive_tori() -> None:
     generator = RandomTorusSliceGenerator(TorusFamilyAnalyzer())
-    observation = generator.generate(
-        GenerationRequest(17, 10),
-        Random(17),
-        TorusGenerationSpec(4, True, "chain"),
+    request = GenerationRequest(17, 10)
+    observation = generator.generate_for(
+        TorusGenerationContext(request, ChainLinkedTorusFamily(4), SamplingSession(17, "test"))
     )
 
     assert all(isinstance(torus, EllipticTorus) for torus in observation.family.tori)
@@ -62,10 +69,9 @@ def test_connected_chain_links_all_consecutive_tori() -> None:
 
 def test_complete_hopf_link_has_every_pair_linked() -> None:
     generator = RandomTorusSliceGenerator(TorusFamilyAnalyzer())
-    observation = generator.generate(
-        GenerationRequest(23, 10),
-        Random(23),
-        TorusGenerationSpec(4, True, "complete"),
+    request = GenerationRequest(23, 10)
+    observation = generator.generate_for(
+        TorusGenerationContext(request, CompletelyLinkedTorusFamily(4), SamplingSession(23, "test"))
     )
 
     assert len(TorusFamilyAnalyzer().linked_pairs(observation.family)) == 6
@@ -73,7 +79,7 @@ def test_complete_hopf_link_has_every_pair_linked() -> None:
 
 
 def test_scored_profile_does_not_emit_ambiguous_observation_puzzles() -> None:
-    distribution = build_container().resolve(TorusDefaultQuestionDistribution)
+    distribution = build_container().resolve(TorusQuestionDistribution)
     kinds = {distribution.at(10).sample(Random(index)).id for index in range(100)}
 
     assert "slice-order" not in kinds
@@ -84,7 +90,7 @@ def test_scored_profile_does_not_emit_ambiguous_observation_puzzles() -> None:
 def test_benchmark_is_wired_and_hides_equations_and_core_circles() -> None:
     container = build_container()
     benchmark = container.resolve(TorusSlicesBenchmark)
-    distribution = container.resolve(TorusDefaultQuestionDistribution).at(8)
+    distribution = container.resolve(TorusQuestionDistribution).at(8)
     first = benchmark.generate(request=GenerationRequest(8, 8), distribution=distribution)
     second = benchmark.generate(request=GenerationRequest(8, 8), distribution=distribution)
 

@@ -153,10 +153,8 @@ every planar corner angle, rounded to the stated precision, and reject
 near-tied defect comparisons. Extrinsic height questions are withheld because a flat net does not
 make the required dihedral reconstruction sufficiently readable.
 Two-net isometry generation is withheld until hard negative examples can be built from the same
-rigid panel kit; the compatibility API renders such comparisons with face correspondences and one
-shared scale. Source-family names, hidden seams, completion counts, and answer-derived geometry are
-not exposed. Legacy regular-face models remain available for direct API callers and regression
-tests.
+rigid panel kit; comparison rendering uses face correspondences and one shared scale. Source-family
+names, hidden seams, completion counts, and answer-derived geometry are not exposed.
 
 ## Torus-slice domain
 
@@ -344,11 +342,17 @@ config/
     |-- generation.yaml           default probabilistic profile
     `-- rendering.yaml            default visual profile
 src/topology_benchmark/
-|-- core/                         shared Problem types, protocols, probability, recipes
+|-- core/
+|   |-- errors.py, validation.py  repository-wide errors and attrs validators
+|   |-- generation/               shared object-generation contracts
+|   |-- presentation/             shared representation contracts
+|   |-- probability/              finite laws, sampling, and profile interpolation
+|   |-- problem/                  problem values, recipes, providers, and question distributions
+|   `-- structures/               shared structural primitives such as disjoint sets
 |-- application/                  composition root, benchmark catalog, local HTTP demo
 |-- domains/surfaces/
 |   |-- benchmark.py              thin provider/orchestration shell
-|   |-- distributions.py          domain default question distribution
+|   |-- question_distribution.py  domain question distribution
 |   |-- generation/
 |   |   |-- config.py             typed generation configuration and loader
 |   |   |-- context/              semantic conditions and contexts by subject
@@ -363,7 +367,27 @@ src/topology_benchmark/
 |   |-- services/                 explicitly named services such as surface_analyzer.py
 |   |-- ports.py                  active generator and representation boundaries
 |   `-- registration.py           domain-owned container bindings
-`-- utils/                        shared implementation utilities
+|-- domains/polyhedral_nets/
+|   |-- benchmark.py, config.py, ports.py, question_distribution.py, registration.py
+|   |-- generation/               net realization and compatible-completion enumeration
+|   |-- models/                   immutable net and folding values
+|   |-- questions/                registered polyhedral question capabilities
+|   |-- rendering/                SVG net presentation
+|   `-- services/                 net, cell-graph, and observation analysis
+|-- domains/torus_slices/
+|   |-- benchmark.py, config.py, ports.py, question_distribution.py, registration.py
+|   |-- generation/               semantic generation context and realization
+|   |-- models/                   torus geometry and observations
+|   |-- questions/                registered slice question capabilities
+|   |-- rendering/                SVG slice presentation
+|   `-- services/                 torus-family analysis
+`-- pipeline/
+    |-- config.py, registration.py
+    |-- dataset_generator.py      dataset-generation entrypoint
+    |-- evaluator.py              model-evaluation entrypoint
+    |-- dataset/                  generated values and persistence
+    |-- evaluation/               provider, scorer, results, and persistence
+    `-- serialization/            shared JSON serialization primitives
 ```
 
 The core provides generic `QuestionCatalog`, `QuestionChoice`, and `QuestionDistribution` types and
@@ -440,10 +464,11 @@ evaluation:
 Set the key only in the process environment; it is never read from YAML or written to run
 artifacts. The adapter sends multimodal `messages` to `POST {base_url}/chat/completions` and asks
 the model to finish with `FINAL_ANSWER: ...`. It currently sends the native SVG as a base64 data
-URL. If an available API accepts only PNG or uses a different schema, implement a `ModelProvider`
-adapter in `pipeline/model_provider.py`; PNG rasterization should happen at that boundary so the
+URL. If an available API accepts only PNG or uses a different schema, implement an `IModelProvider`
+adapter in `pipeline/evaluation/model_provider.py`; PNG rasterization should happen at that
+boundary so the
 generated mathematical instance stays unchanged. Test doubles belong in tests and are injected
-through the same `ModelProvider` protocol; they are not deployable provider choices.
+through the same `IModelProvider` protocol; they are not deployable provider choices.
 
 Before connecting a tutor-provided API, obtain its base URL, model identifier, authentication
 method, multimodal request/response example, accepted image MIME types and size limits, rate limits,

@@ -5,7 +5,7 @@ from random import Random
 from attrs import evolve
 
 from topology_benchmark import build_container
-from topology_benchmark.core.models import GenerationRequest
+from topology_benchmark.core.problem.models import GenerationRequest
 from topology_benchmark.domains.polyhedral_nets import (
     EdgePair,
     FaceCorner,
@@ -14,19 +14,23 @@ from topology_benchmark.domains.polyhedral_nets import (
     PolyhedralFolding,
     PolyhedralNet,
     PolyhedralNetAnalyzer,
-    RegularFace,
     VertexType,
 )
 from topology_benchmark.domains.polyhedral_nets.benchmark import PolyhedralNetsBenchmark
-from topology_benchmark.domains.polyhedral_nets.distributions import (
-    PolyhedralDefaultQuestionDistribution,
+from topology_benchmark.domains.polyhedral_nets.generation.completion import NetQuestionCertifier
+from topology_benchmark.domains.polyhedral_nets.generation.polyhedral_net_generator import (
+    RandomPolyhedralNetGenerator,
 )
-from topology_benchmark.domains.polyhedral_nets.generation import RandomPolyhedralNetGenerator
-from topology_benchmark.domains.polyhedral_nets.question_services import (
-    NetQuestionCertifier,
+from topology_benchmark.domains.polyhedral_nets.question_distribution import (
+    PolyhedralQuestionDistribution,
+)
+from topology_benchmark.domains.polyhedral_nets.rendering.svg_renderer import (
+    PolyhedralNetSvgRenderer,
+)
+from topology_benchmark.domains.polyhedral_nets.services.polyhedral_cell_graph_analyzer import (
+    MarkedFace,
     PolyhedralCellGraphAnalyzer,
 )
-from topology_benchmark.domains.polyhedral_nets.representation import PolyhedralNetSvgRenderer
 
 
 def _generate_default(benchmark, distribution, seed: int, difficulty: int):
@@ -42,7 +46,16 @@ def _bipyramid(size: int, *, seed: int = 3):
     face_vertices = tuple(
         (top, vertex, ring[(index + 1) % size]) for index, vertex in enumerate(ring)
     ) + tuple((bottom, ring[(index + 1) % size], vertex) for index, vertex in enumerate(ring))
-    faces = tuple(RegularFace(f"F{index + 1}", 3) for index in range(len(face_vertices)))
+    faces = tuple(
+        PolygonFace(
+            f"F{index + 1}",
+            ((0.0, 0.0), (1.0, 0.0), (0.5, 3**0.5 / 2)),
+            (Fraction(1),) * 3,
+            (60.0,) * 3,
+            vertices,
+        )
+        for index, vertices in enumerate(face_vertices)
+    )
     pairs = RandomPolyhedralNetGenerator._edge_pairs(face_vertices)
     by_edges = {pair.unordered: pair for pair in pairs}
 
@@ -70,9 +83,9 @@ def _bipyramid(size: int, *, seed: int = 3):
 def test_local_angle_classification_is_exact() -> None:
     analyzer = PolyhedralNetAnalyzer()
 
-    assert analyzer.classify_angle(Fraction(359)) is VertexType.CONVEX
-    assert analyzer.classify_angle(Fraction(360)) is VertexType.FLAT
-    assert analyzer.classify_angle(Fraction(361)) is VertexType.SADDLE
+    assert analyzer.classify_angle(Fraction(359)) is VertexType.POSITIVE_DEFECT
+    assert analyzer.classify_angle(Fraction(360)) is VertexType.ZERO_DEFECT
+    assert analyzer.classify_angle(Fraction(361)) is VertexType.NEGATIVE_DEFECT
 
 
 def test_bipyramid_foldings_are_closed_spheres_with_expected_apex_geometry() -> None:
@@ -85,20 +98,21 @@ def test_bipyramid_foldings_are_closed_spheres_with_expected_apex_geometry() -> 
     assert convex.euler_characteristic == 2
     assert convex.vertex_neighborhoods_are_disks
     assert convex.admits_convex_realization
-    assert VertexType.FLAT in flat.vertex_types
+    assert VertexType.ZERO_DEFECT in flat.vertex_types
     assert not flat.admits_convex_realization
-    assert VertexType.SADDLE in saddle.vertex_types
+    assert VertexType.NEGATIVE_DEFECT in saddle.vertex_types
     assert not saddle.admits_convex_realization
 
 
 def test_renderer_hides_matches_but_labels_boundary_edges() -> None:
     net = _bipyramid(4)
-    section = PolyhedralNetSvgRenderer().render(net.net, GenerationRequest(8, 5), Random(8))
+    observed = evolve(net.net, edge_labels=((net.net.boundary_edges[0], "A"),))
+    section = PolyhedralNetSvgRenderer().render(observed, GenerationRequest(8, 5), Random(8))
 
     assert section.media_type == "image/svg+xml"
     assert "Equal-colored dots" not in section.content
-    assert "e1" in section.content
-    assert "unit side length" in section.content
+    assert ">A</text>" in section.content
+    assert "drawn to scale" in section.content
     assert PolyhedralNetAnalyzer().seam_answer(net)
     solutions = PolyhedralNetAnalyzer().enumerate_locally_convex_pairings(net.net)
     assert len(solutions) == 1
@@ -108,7 +122,7 @@ def test_renderer_hides_matches_but_labels_boundary_edges() -> None:
 def test_benchmark_is_reproducible_and_wired_into_container() -> None:
     container = build_container()
     benchmark = container.resolve(PolyhedralNetsBenchmark)
-    distribution = container.resolve(PolyhedralDefaultQuestionDistribution)
+    distribution = container.resolve(PolyhedralQuestionDistribution)
     first = _generate_default(benchmark, distribution, 42, 10)
     second = _generate_default(benchmark, distribution, 42, 10)
 
@@ -155,7 +169,7 @@ def test_v2_sources_are_real_irregular_polyhedra_with_nonoverlapping_development
 def test_v6_benchmark_uses_certified_sparse_observations_without_answer_leakage() -> None:
     container = build_container()
     benchmark = container.resolve(PolyhedralNetsBenchmark)
-    distribution = container.resolve(PolyhedralDefaultQuestionDistribution)
+    distribution = container.resolve(PolyhedralQuestionDistribution)
 
     problems = [_generate_default(benchmark, distribution, seed, 10) for seed in range(25)]
 
@@ -225,7 +239,7 @@ def test_visual_tolerance_preserves_pairings_hidden_by_exact_metrics() -> None:
 def test_curvature_questions_show_all_corner_angles_and_have_a_margin() -> None:
     container = build_container()
     benchmark = container.resolve(PolyhedralNetsBenchmark)
-    distribution = container.resolve(PolyhedralDefaultQuestionDistribution)
+    distribution = container.resolve(PolyhedralQuestionDistribution)
     problem = next(
         problem
         for seed in range(100)
@@ -241,7 +255,7 @@ def test_curvature_questions_show_all_corner_angles_and_have_a_margin() -> None:
 def test_cell_distance_unifies_face_incidence_and_shortest_path_count() -> None:
     folding = _bipyramid(4)
     graph = PolyhedralCellGraphAnalyzer(PolyhedralNetAnalyzer())
-    face_cells = [("face", face, -1) for face in range(len(folding.net.faces))]
+    face_cells = [MarkedFace(face) for face in range(len(folding.net.faces))]
     statistics = {
         graph.statistics(folding.net, folding.seams, first, second)
         for first_index, first in enumerate(face_cells)
@@ -256,7 +270,7 @@ def test_cell_distance_unifies_face_incidence_and_shortest_path_count() -> None:
 def test_vertex_partition_replaces_binary_corner_coincidence() -> None:
     container = build_container()
     benchmark = container.resolve(PolyhedralNetsBenchmark)
-    distribution = container.resolve(PolyhedralDefaultQuestionDistribution)
+    distribution = container.resolve(PolyhedralQuestionDistribution)
     problem = next(
         problem
         for seed in range(60)

@@ -1,3 +1,7 @@
+class ConfigurationError(ValueError):
+    """External configuration cannot be loaded into the application."""
+
+
 class GenerationError(RuntimeError):
     """A valid generation request could not be completed."""
 

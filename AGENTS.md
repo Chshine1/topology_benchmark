@@ -56,6 +56,9 @@
   correctable request/configuration errors, HTTP adapters map known errors to status codes, and
   pipeline provider failures may become per-item results. Do not broadly classify internal
   `ValueError` failures as user input errors.
+- Publish each new multi-file run through a staging directory and move the completed directory
+  into place atomically. Clean up staging data on failure, and keep collision behavior explicit so
+  a reproducible run cannot be mistaken for a successful overwrite.
 - Represent exhausted bounded generation with a specific operational exception rather than a
   generic `RuntimeError`. Reserve `AssertionError` for unreachable internal states.
 - Extract a helper when it owns a named policy, invariant, or reusable domain operation. Do not
@@ -64,6 +67,10 @@
 
 ## Protocols
 
+- Name protocol interfaces `I<Capability>` and name the primary concrete implementation
+  `<Capability>`. Apply modifiers such as `LlmBased` only when they distinguish current,
+  materially different behavior; do not reserve names such as `Default`, `Exact`, or `Base` for
+  hypothetical alternatives.
 - Concrete classes that intentionally implement a repository protocol should inherit that
   protocol explicitly. This makes the architectural relationship searchable and lets static
   analysis validate the implementation at its declaration.
@@ -82,6 +89,11 @@
   add string identities to services merely to recover their implementation type at runtime.
 - Keep test doubles in tests and inject them through production protocols. Do not expose fake or
   fixed implementations as deployable configuration choices merely to support offline tests.
+- Model adapters must handle each supported question-section media type explicitly and reject
+  unsupported types before making an external request. Do not silently encode every section as the
+  provider's dominant media type.
+- Keep response extraction and answer-equivalence policy behind an injected scoring boundary.
+  Pipeline orchestration must not grow a central type switch whenever a domain adds an answer form.
 - Represent question selection as a distribution over registered question objects. Question-specific
   generation parameters belong in typed configuration carried by the question; generators must not
   inspect question IDs to choose behavior.
@@ -123,6 +135,20 @@
 
 ## Maintenance and architectural memory
 
+- Treat a package root as a human navigation boundary. Keep roughly four or five ordinary modules
+  there, limited to recurring architectural entrypoints such as `config.py`, `ports.py`,
+  `registration.py`, and primary orchestration services. Group implementation details into
+  role-oriented subpackages before the root becomes a flat inventory.
+- Organize pipeline support by the lifecycle it serves, such as `dataset/` or `evaluation/`. Do not
+  create broad technical buckets such as `artifacts/` when their contents belong to distinct
+  workflows.
+- Organize cross-domain core code by the concept it supports: problem lifecycle, probability,
+  generation, presentation, or structural primitives. Keep only truly repository-wide conventional
+  modules such as errors and validation at the core package root.
+- Name a module after the concrete capability it owns, such as `answer_scorer.py`. Do not use a
+  broad process noun such as `scoring.py` or a technical category such as `protocols.py` to collect
+  unrelated responsibilities; split multiple capabilities into focused modules or a cohesive
+  capability package.
 - Keep a context or aggregate beside the value types that define its shape. When a capability has
   several roles and subject families, give it a package with role-oriented subpackages and
   subject-named modules, such as `generation/context/object.py` and

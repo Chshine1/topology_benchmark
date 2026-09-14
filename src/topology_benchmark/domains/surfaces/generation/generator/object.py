@@ -2,14 +2,14 @@ import math
 from random import Random
 from typing import override
 
-from topology_benchmark.core.models import GenerationRequest
-from topology_benchmark.core.probability import (
+from topology_benchmark.core.probability.distribution import (
     BernoulliDistribution,
     FiniteDistribution,
     TruncatedGeometricDistribution,
     WeightedValue,
-    blended_weight,
 )
+from topology_benchmark.core.probability.interpolation import blended_weight
+from topology_benchmark.core.problem.models import GenerationRequest
 from topology_benchmark.domains.surfaces.generation.config import SurfaceGenerationConfig
 from topology_benchmark.domains.surfaces.generation.context.object import (
     DistinguishedSurfacePaths,
@@ -26,11 +26,11 @@ from topology_benchmark.domains.surfaces.models import (
     SurfacePath,
     SurfacePresentation,
 )
-from topology_benchmark.domains.surfaces.ports import SurfaceGenerator
+from topology_benchmark.domains.surfaces.ports import ISurfaceGenerator
 from topology_benchmark.domains.surfaces.services import SurfaceAnalyzer
 
 
-class RandomSurfacePresentationGenerator(SurfaceGenerator):
+class RandomSurfacePresentationGenerator(ISurfaceGenerator):
     def __init__(self, config: SurfaceGenerationConfig, analyzer: SurfaceAnalyzer) -> None:
         self.config = config
         self._analyzer = analyzer

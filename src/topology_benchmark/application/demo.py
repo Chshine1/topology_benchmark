@@ -9,7 +9,7 @@ from urllib.parse import parse_qs, urlparse
 from topology_benchmark.application.catalog import BenchmarkCatalog
 from topology_benchmark.application.errors import BenchmarkApplicationError
 from topology_benchmark.core.errors import GenerationError
-from topology_benchmark.core.models import GenerationRequest
+from topology_benchmark.core.problem.models import GenerationRequest
 
 
 class DemoApplication:
@@ -18,6 +18,7 @@ class DemoApplication:
         catalog: BenchmarkCatalog,
         default_domain: str,
     ) -> None:
+        catalog.require_domain(default_domain)
         self._catalog = catalog
         self.default_domain = default_domain
 
@@ -33,16 +34,12 @@ class DemoApplication:
         )
         return json.dumps(asdict(problem), ensure_ascii=False).encode()
 
-    @staticmethod
-    def index_html(
-        domains: tuple[str, ...] = ("surfaces", "polyhedral-nets", "torus-slices"),
-        default_domain: str = "surfaces",
-    ) -> bytes:
+    def index_html(self) -> bytes:
         options = "".join(
             f'<option value="{html.escape(domain)}"'
-            f"{' selected' if domain == default_domain else ''}>"
+            f"{' selected' if domain == self.default_domain else ''}>"
             f"{html.escape(domain)}</option>"
-            for domain in domains
+            for domain in self.domains
         )
         return _INDEX_HTML.replace("__DOMAIN_OPTIONS__", options).encode()
 
@@ -66,7 +63,7 @@ def serve_demo(
                 self._send(
                     HTTPStatus.OK,
                     "text/html; charset=utf-8",
-                    application.index_html(application.domains, application.default_domain),
+                    application.index_html(),
                 )
                 return
             if parsed.path == "/health":

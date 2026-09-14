@@ -1,20 +1,20 @@
 from typing import override
 
-from topology_benchmark.core.models import GenerationRequest, Problem
-from topology_benchmark.core.probability import SamplingSession
-from topology_benchmark.core.protocols import ProblemProvider
-from topology_benchmark.core.recipes import (
+from topology_benchmark.core.probability.sampling import SamplingSession
+from topology_benchmark.core.problem.models import GenerationRequest, Problem
+from topology_benchmark.core.problem.provider import IProblemProvider
+from topology_benchmark.core.problem.question_distribution import (
     QuestionCatalog,
     QuestionDistribution,
 )
-from topology_benchmark.domains.torus_slices.questions import TorusAnswer, TorusQuestion
+from topology_benchmark.domains.torus_slices.questions.question import TorusAnswer, TorusQuestion
 
 
 class TorusQuestionCatalog(QuestionCatalog[TorusQuestion]):
     pass
 
 
-class TorusSlicesBenchmark(ProblemProvider[TorusQuestion, TorusAnswer]):
+class TorusSlicesBenchmark(IProblemProvider[TorusQuestion, TorusAnswer]):
     @override
     def generate(
         self,

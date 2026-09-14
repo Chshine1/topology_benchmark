@@ -10,8 +10,8 @@ from topology_benchmark.application.configuration import (
     SURFACE_GENERATION_DEFAULTS,
     SURFACE_RENDERING_DEFAULTS,
 )
-from topology_benchmark.core.models import GenerationRequest
-from topology_benchmark.core.probability import SamplingSession
+from topology_benchmark.core.probability.sampling import SamplingSession
+from topology_benchmark.core.problem.models import GenerationRequest
 from topology_benchmark.domains.surfaces.benchmark import SurfaceQuestionCatalog
 from topology_benchmark.domains.surfaces.generation.config import load_generation_config
 from topology_benchmark.domains.surfaces.generation.context.object import (

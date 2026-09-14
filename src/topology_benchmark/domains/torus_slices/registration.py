@@ -1,43 +1,51 @@
 from lagom import Container, Singleton
 
-from topology_benchmark.core.recipes import DifficultyQuestionChoice
-from topology_benchmark.domains.torus_slices.analysis import TorusFamilyAnalyzer
+from topology_benchmark.core.problem.question_distribution import DifficultyQuestionChoice
 from topology_benchmark.domains.torus_slices.benchmark import (
     TorusQuestionCatalog,
     TorusSlicesBenchmark,
 )
-from topology_benchmark.domains.torus_slices.distributions import TorusDefaultQuestionDistribution
-from topology_benchmark.domains.torus_slices.generation import RandomTorusSliceGenerator
-from topology_benchmark.domains.torus_slices.ports import (
-    TorusSliceGenerator,
-    TorusSliceRepresentation,
+from topology_benchmark.domains.torus_slices.config import (
+    TorusCountConfig,
+    TorusDomainConfig,
+    TorusLinkConfig,
 )
-from topology_benchmark.domains.torus_slices.questions import (
+from topology_benchmark.domains.torus_slices.generation.torus_slice_generator import (
+    RandomTorusSliceGenerator,
+)
+from topology_benchmark.domains.torus_slices.ports import (
+    ITorusSliceGenerator,
+    ITorusSliceRepresentation,
+)
+from topology_benchmark.domains.torus_slices.question_distribution import TorusQuestionDistribution
+from topology_benchmark.domains.torus_slices.questions.question import (
     CompletelyUnlinkedQuestion,
     LinkedPairCountQuestion,
     LinkedQuestion,
-    TorusCountConfig,
     TorusCountQuestion,
-    TorusLinkConfig,
 )
-from topology_benchmark.domains.torus_slices.representation import TorusSliceSvgRenderer
+from topology_benchmark.domains.torus_slices.rendering.svg_renderer import TorusSliceSvgRenderer
+from topology_benchmark.domains.torus_slices.services.torus_family_analyzer import (
+    TorusFamilyAnalyzer,
+)
 
 
-def add_torus_slices_domain(container: Container) -> Container:
+def add_torus_slices_domain(container: Container, config: TorusDomainConfig) -> Container:
     container[RandomTorusSliceGenerator] = RandomTorusSliceGenerator
-    container[TorusSliceGenerator] = RandomTorusSliceGenerator
+    container[ITorusSliceGenerator] = RandomTorusSliceGenerator
     container[TorusFamilyAnalyzer] = Singleton(TorusFamilyAnalyzer)
     container[TorusSliceSvgRenderer] = TorusSliceSvgRenderer
-    container[TorusSliceRepresentation] = TorusSliceSvgRenderer
-    container[TorusCountConfig] = TorusCountConfig()
-    container[TorusLinkConfig] = TorusLinkConfig()
+    container[ITorusSliceRepresentation] = TorusSliceSvgRenderer
+    container[TorusDomainConfig] = config
+    container[TorusCountConfig] = config.count
+    container[TorusLinkConfig] = config.link
     torus_count = container.resolve(TorusCountQuestion)
     linked = container.resolve(LinkedQuestion)
     completely_unlinked = container.resolve(CompletelyUnlinkedQuestion)
     linked_pair_count = container.resolve(LinkedPairCountQuestion)
     questions = (torus_count, linked, completely_unlinked, linked_pair_count)
     container[TorusQuestionCatalog] = TorusQuestionCatalog(questions)
-    container[TorusDefaultQuestionDistribution] = TorusDefaultQuestionDistribution(
+    container[TorusQuestionDistribution] = TorusQuestionDistribution(
         (
             DifficultyQuestionChoice(
                 torus_count, ((1, 1.0), (2, 1.0), (3, 0.35), (5, 0.35), (6, 0.0))

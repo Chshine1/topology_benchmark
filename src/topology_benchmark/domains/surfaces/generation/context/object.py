@@ -1,7 +1,8 @@
 from attrs import field, frozen
 
-from topology_benchmark.core.models import GenerationRequest
-from topology_benchmark.core.probability import FiniteDistribution, SamplingSession
+from topology_benchmark.core.probability.distribution import FiniteDistribution
+from topology_benchmark.core.probability.sampling import SamplingSession
+from topology_benchmark.core.problem.models import GenerationRequest
 from topology_benchmark.core.validation import number_range
 
 

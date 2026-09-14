@@ -1,9 +1,9 @@
 from abc import ABC, abstractmethod
 from typing import override
 
-from topology_benchmark.core.models import GenerationRequest, Problem
-from topology_benchmark.core.probability import SamplingSession
-from topology_benchmark.core.protocols import ProblemRecipe
+from topology_benchmark.core.probability.sampling import SamplingSession
+from topology_benchmark.core.problem.models import GenerationRequest, Problem
+from topology_benchmark.core.problem.recipe import IProblemRecipe
 from topology_benchmark.domains.surfaces.generation.config import SurfaceGenerationConfig
 from topology_benchmark.domains.surfaces.generation.context.morphism import (
     SurfaceMorphismGenerationContext,
@@ -14,22 +14,22 @@ from topology_benchmark.domains.surfaces.models import (
     SurfaceMorphism,
 )
 from topology_benchmark.domains.surfaces.ports import (
+    ISurfaceMorphismGenerator,
+    ISurfaceRepresentation,
     SurfaceAnswer,
-    SurfaceMorphismGenerator,
-    SurfaceRepresentation,
 )
 from topology_benchmark.domains.surfaces.questions.answers import integral_homology
 from topology_benchmark.domains.surfaces.services import SurfaceAnalyzer
 
 
-class SurfaceMorphismQuestion(ProblemRecipe[SurfaceAnswer], ABC):
+class SurfaceMorphismQuestion(IProblemRecipe[SurfaceAnswer], ABC):
     id = ""
     prompt = ""
 
     def __init__(
         self,
-        generator: SurfaceMorphismGenerator,
-        representation: SurfaceRepresentation,
+        generator: ISurfaceMorphismGenerator,
+        representation: ISurfaceRepresentation,
         analyzer: SurfaceAnalyzer,
         config: SurfaceGenerationConfig,
     ) -> None:

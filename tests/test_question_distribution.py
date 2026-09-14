@@ -2,7 +2,7 @@ from random import Random
 
 import pytest
 
-from topology_benchmark.core.recipes import (
+from topology_benchmark.core.problem.question_distribution import (
     DifficultyQuestionChoice,
     DifficultyQuestionDistribution,
     QuestionChoice,

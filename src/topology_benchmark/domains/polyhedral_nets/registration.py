@@ -1,56 +1,70 @@
 from lagom import Container, Singleton
 
-from topology_benchmark.core.recipes import DifficultyQuestionChoice
-from topology_benchmark.domains.polyhedral_nets.analysis import PolyhedralNetAnalyzer
+from topology_benchmark.core.problem.question_distribution import DifficultyQuestionChoice
 from topology_benchmark.domains.polyhedral_nets.benchmark import (
     PolyhedralNetsBenchmark,
     PolyhedralQuestionCatalog,
 )
-from topology_benchmark.domains.polyhedral_nets.distributions import (
-    PolyhedralDefaultQuestionDistribution,
+from topology_benchmark.domains.polyhedral_nets.config import (
+    CellDistanceConfig,
+    CurvatureOrderConfig,
+    PolyhedralDomainConfig,
+    SeamMatchConfig,
+    VertexDegreeConfig,
+    VertexPartitionConfig,
 )
-from topology_benchmark.domains.polyhedral_nets.generation import RandomPolyhedralNetGenerator
-from topology_benchmark.domains.polyhedral_nets.ports import (
-    PolyhedralNetGenerator,
-    PolyhedralNetRepresentation,
-)
-from topology_benchmark.domains.polyhedral_nets.question_services import (
-    NetObservationBuilder,
+from topology_benchmark.domains.polyhedral_nets.generation.completion import (
     NetQuestionCertifier,
     ObservableCompletionEnumerator,
-    PolyhedralCellGraphAnalyzer,
 )
-from topology_benchmark.domains.polyhedral_nets.questions import (
-    CellDistanceConfig,
+from topology_benchmark.domains.polyhedral_nets.generation.polyhedral_net_generator import (
+    RandomPolyhedralNetGenerator,
+)
+from topology_benchmark.domains.polyhedral_nets.ports import (
+    IPolyhedralNetGenerator,
+    IPolyhedralNetRepresentation,
+)
+from topology_benchmark.domains.polyhedral_nets.question_distribution import (
+    PolyhedralQuestionDistribution,
+)
+from topology_benchmark.domains.polyhedral_nets.questions.question import (
     CellDistanceQuestion,
-    CurvatureOrderConfig,
     CurvatureOrderQuestion,
-    SeamMatchConfig,
     SeamMatchQuestion,
     ShortestPathCountQuestion,
-    VertexDegreeConfig,
     VertexDegreeQuestion,
-    VertexPartitionConfig,
     VertexPartitionQuestion,
 )
-from topology_benchmark.domains.polyhedral_nets.representation import PolyhedralNetSvgRenderer
+from topology_benchmark.domains.polyhedral_nets.rendering.svg_renderer import (
+    PolyhedralNetSvgRenderer,
+)
+from topology_benchmark.domains.polyhedral_nets.services.net_observation_builder import (
+    NetObservationBuilder,
+)
+from topology_benchmark.domains.polyhedral_nets.services.polyhedral_cell_graph_analyzer import (
+    PolyhedralCellGraphAnalyzer,
+)
+from topology_benchmark.domains.polyhedral_nets.services.polyhedral_net_analyzer import (
+    PolyhedralNetAnalyzer,
+)
 
 
-def add_polyhedral_nets_domain(container: Container) -> Container:
+def add_polyhedral_nets_domain(container: Container, config: PolyhedralDomainConfig) -> Container:
     container[RandomPolyhedralNetGenerator] = RandomPolyhedralNetGenerator
-    container[PolyhedralNetGenerator] = RandomPolyhedralNetGenerator
+    container[IPolyhedralNetGenerator] = RandomPolyhedralNetGenerator
     container[PolyhedralNetAnalyzer] = Singleton(PolyhedralNetAnalyzer)
     container[PolyhedralNetSvgRenderer] = PolyhedralNetSvgRenderer
-    container[PolyhedralNetRepresentation] = PolyhedralNetSvgRenderer
+    container[IPolyhedralNetRepresentation] = PolyhedralNetSvgRenderer
     container[ObservableCompletionEnumerator] = Singleton(ObservableCompletionEnumerator)
     container[NetQuestionCertifier] = Singleton(NetQuestionCertifier)
     container[PolyhedralCellGraphAnalyzer] = Singleton(PolyhedralCellGraphAnalyzer)
     container[NetObservationBuilder] = Singleton(NetObservationBuilder)
-    container[VertexPartitionConfig] = VertexPartitionConfig()
-    container[VertexDegreeConfig] = VertexDegreeConfig()
-    container[CurvatureOrderConfig] = CurvatureOrderConfig()
-    container[SeamMatchConfig] = SeamMatchConfig()
-    container[CellDistanceConfig] = CellDistanceConfig()
+    container[PolyhedralDomainConfig] = config
+    container[VertexPartitionConfig] = config.vertex_partition
+    container[VertexDegreeConfig] = config.vertex_degree
+    container[CurvatureOrderConfig] = config.curvature_order
+    container[SeamMatchConfig] = config.seam_match
+    container[CellDistanceConfig] = config.cell_distance
     seam_match = container.resolve(SeamMatchQuestion)
     vertex_partition = container.resolve(VertexPartitionQuestion)
     cell_distance = container.resolve(CellDistanceQuestion)
@@ -66,7 +80,7 @@ def add_polyhedral_nets_domain(container: Container) -> Container:
         shortest_path_count,
     )
     container[PolyhedralQuestionCatalog] = PolyhedralQuestionCatalog(questions)
-    container[PolyhedralDefaultQuestionDistribution] = PolyhedralDefaultQuestionDistribution(
+    container[PolyhedralQuestionDistribution] = PolyhedralQuestionDistribution(
         (
             DifficultyQuestionChoice(seam_match, ((1, 1.0), (4, 1.0))),
             DifficultyQuestionChoice(vertex_partition, ((1, 1.0), (4, 1.0))),
