@@ -4,11 +4,11 @@ from random import Random
 from typing import override
 
 from topology_benchmark.core.problem.models import GenerationRequest, QuestionSection
+from topology_benchmark.domains.polyhedral_nets.abstractions import IPolyhedralNetRepresentation
 from topology_benchmark.domains.polyhedral_nets.models.net import (
     NetEdge,
     PolyhedralNet,
 )
-from topology_benchmark.domains.polyhedral_nets.ports import IPolyhedralNetRepresentation
 
 type Point = tuple[float, float]
 
@@ -36,15 +36,13 @@ class PolyhedralNetSvgRenderer(IPolyhedralNetRepresentation):
         obj: PolyhedralNet,
         request: GenerationRequest,
         rng: Random,
-        *,
-        scale: float | None = None,
     ) -> QuestionSection:
         del request
         layouts = self._layout(obj)
         points = [point for polygon in layouts for point in polygon]
         min_x, max_x = min(x for x, _ in points), max(x for x, _ in points)
         min_y, max_y = min(y for _, y in points), max(y for _, y in points)
-        scale = scale or min(
+        scale = obj.display_scale or min(
             86.0,
             1000.0 / max(1e-9, max_x - min_x),
             720.0 / max(1e-9, max_y - min_y),

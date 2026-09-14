@@ -1,9 +1,11 @@
 from lagom import Container, Singleton
 
-from topology_benchmark.core.problem.question_distribution import DifficultyQuestionChoice
-from topology_benchmark.domains.polyhedral_nets.benchmark import (
-    PolyhedralNetsBenchmark,
-    PolyhedralQuestionCatalog,
+from topology_benchmark.core.problem.recipe_distribution import DifficultyProblemRecipeWeight
+from topology_benchmark.domains.polyhedral_nets.abstractions import (
+    IPolyhedralNetGenerator,
+    IPolyhedralNetRepresentation,
+    PolyhedralProblemRecipeCatalog,
+    PolyhedralProblemRecipeDistribution,
 )
 from topology_benchmark.domains.polyhedral_nets.config import (
     CellDistanceConfig,
@@ -20,20 +22,13 @@ from topology_benchmark.domains.polyhedral_nets.generation.completion import (
 from topology_benchmark.domains.polyhedral_nets.generation.polyhedral_net_generator import (
     RandomPolyhedralNetGenerator,
 )
-from topology_benchmark.domains.polyhedral_nets.ports import (
-    IPolyhedralNetGenerator,
-    IPolyhedralNetRepresentation,
-)
-from topology_benchmark.domains.polyhedral_nets.question_distribution import (
-    PolyhedralQuestionDistribution,
-)
-from topology_benchmark.domains.polyhedral_nets.questions.question import (
-    CellDistanceQuestion,
-    CurvatureOrderQuestion,
-    SeamMatchQuestion,
-    ShortestPathCountQuestion,
-    VertexDegreeQuestion,
-    VertexPartitionQuestion,
+from topology_benchmark.domains.polyhedral_nets.recipes import (
+    CellDistanceProblemRecipe,
+    CurvatureOrderProblemRecipe,
+    SeamMatchProblemRecipe,
+    ShortestPathCountProblemRecipe,
+    VertexDegreeProblemRecipe,
+    VertexPartitionProblemRecipe,
 )
 from topology_benchmark.domains.polyhedral_nets.rendering.svg_renderer import (
     PolyhedralNetSvgRenderer,
@@ -65,13 +60,13 @@ def add_polyhedral_nets_domain(container: Container, config: PolyhedralDomainCon
     container[CurvatureOrderConfig] = config.curvature_order
     container[SeamMatchConfig] = config.seam_match
     container[CellDistanceConfig] = config.cell_distance
-    seam_match = container.resolve(SeamMatchQuestion)
-    vertex_partition = container.resolve(VertexPartitionQuestion)
-    cell_distance = container.resolve(CellDistanceQuestion)
-    vertex_degree = container.resolve(VertexDegreeQuestion)
-    curvature_order = container.resolve(CurvatureOrderQuestion)
-    shortest_path_count = container.resolve(ShortestPathCountQuestion)
-    questions = (
+    seam_match = container.resolve(SeamMatchProblemRecipe)
+    vertex_partition = container.resolve(VertexPartitionProblemRecipe)
+    cell_distance = container.resolve(CellDistanceProblemRecipe)
+    vertex_degree = container.resolve(VertexDegreeProblemRecipe)
+    curvature_order = container.resolve(CurvatureOrderProblemRecipe)
+    shortest_path_count = container.resolve(ShortestPathCountProblemRecipe)
+    recipes = (
         seam_match,
         vertex_partition,
         cell_distance,
@@ -79,16 +74,15 @@ def add_polyhedral_nets_domain(container: Container, config: PolyhedralDomainCon
         curvature_order,
         shortest_path_count,
     )
-    container[PolyhedralQuestionCatalog] = PolyhedralQuestionCatalog(questions)
-    container[PolyhedralQuestionDistribution] = PolyhedralQuestionDistribution(
+    container[PolyhedralProblemRecipeCatalog] = PolyhedralProblemRecipeCatalog(recipes)
+    container[PolyhedralProblemRecipeDistribution] = PolyhedralProblemRecipeDistribution(
         (
-            DifficultyQuestionChoice(seam_match, ((1, 1.0), (4, 1.0))),
-            DifficultyQuestionChoice(vertex_partition, ((1, 1.0), (4, 1.0))),
-            DifficultyQuestionChoice(cell_distance, ((1, 1.0), (4, 1.0))),
-            DifficultyQuestionChoice(vertex_degree, ((1, 0.0), (3, 0.0), (4, 1.0))),
-            DifficultyQuestionChoice(curvature_order, ((1, 0.0), (3, 0.0), (4, 1.0))),
-            DifficultyQuestionChoice(shortest_path_count, ((1, 0.0), (3, 0.0), (4, 1.0))),
+            DifficultyProblemRecipeWeight(seam_match, ((1, 1.0), (4, 1.0))),
+            DifficultyProblemRecipeWeight(vertex_partition, ((1, 1.0), (4, 1.0))),
+            DifficultyProblemRecipeWeight(cell_distance, ((1, 1.0), (4, 1.0))),
+            DifficultyProblemRecipeWeight(vertex_degree, ((1, 0.0), (3, 0.0), (4, 1.0))),
+            DifficultyProblemRecipeWeight(curvature_order, ((1, 0.0), (3, 0.0), (4, 1.0))),
+            DifficultyProblemRecipeWeight(shortest_path_count, ((1, 0.0), (3, 0.0), (4, 1.0))),
         )
     )
-    container[PolyhedralNetsBenchmark] = PolyhedralNetsBenchmark
     return container

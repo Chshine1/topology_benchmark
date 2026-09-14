@@ -14,7 +14,11 @@ from topology_benchmark.core.probability.distribution import (
 from topology_benchmark.core.probability.interpolation import interpolate_anchors
 from topology_benchmark.core.probability.sampling import SamplingSession
 from topology_benchmark.core.problem.models import GenerationRequest
-from topology_benchmark.domains.surfaces.benchmark import SurfaceBenchmark
+from topology_benchmark.domains.surfaces.abstractions import (
+    ISurfaceGenerator,
+    ISurfaceMorphismGenerator,
+    SurfaceProblemRecipeDistribution,
+)
 from topology_benchmark.domains.surfaces.generation.config import (
     SurfaceGenerationConfig,
     load_generation_config,
@@ -31,8 +35,6 @@ from topology_benchmark.domains.surfaces.generation.generator.morphism import (
 from topology_benchmark.domains.surfaces.generation.generator.object import (
     RandomSurfacePresentationGenerator,
 )
-from topology_benchmark.domains.surfaces.ports import ISurfaceGenerator, ISurfaceMorphismGenerator
-from topology_benchmark.domains.surfaces.question_distribution import SurfaceQuestionDistribution
 from topology_benchmark.domains.surfaces.services import SurfaceAnalyzer
 
 
@@ -61,18 +63,16 @@ def test_difficulty_profiles_interpolate_smoothly() -> None:
     assert interpolate_anchors(anchors, 10) == 1.0
 
 
-def test_default_question_distribution_follows_configured_cohort_weights() -> None:
+def test_default_recipe_distribution_follows_configured_cohort_weights() -> None:
     config = load_generation_config(SURFACE_GENERATION_DEFAULTS)
-    distribution = build_container().resolve(SurfaceQuestionDistribution)
+    distribution = build_container().resolve(SurfaceProblemRecipeDistribution)
 
     def cohort(difficulty: int) -> Counter[str]:
         return Counter(distribution.at(difficulty).sample(Random(seed)).id for seed in range(2000))
 
     easy, hard = cohort(1), cohort(10)
-    morphism_ids = {
-        question for group in config.morphism_questions.values() for question, _ in group
-    }
-    path_ids = {question for question, _ in config.object_questions["path"]}
+    morphism_ids = set(config.morphism_laws)
+    path_ids = {"path-is-cycle", "path-representative"}
     assert 0 < sum(easy[question] for question in morphism_ids) < 0.10 * 2000
     assert sum(hard[question] for question in morphism_ids) > 0.20 * 2000
     assert (
@@ -154,7 +154,6 @@ def test_generation_yaml_is_layered_and_injected() -> None:
     override = Path(__file__).with_name("generation_override.yaml")
     container = build_container(generation_config=override)
     config = container.resolve(SurfaceGenerationConfig)
-    benchmark = container.resolve(SurfaceBenchmark)
     generator = container.resolve(ISurfaceGenerator)
     morphism_generator = container.resolve(ISurfaceMorphismGenerator)
 
@@ -164,9 +163,8 @@ def test_generation_yaml_is_layered_and_injected() -> None:
     assert isinstance(morphism_generator, RandomSurfaceMorphismGenerator)
     assert generator.config is config
     assert morphism_generator.config is config
-    problem = benchmark.generate(
-        request=GenerationRequest(3, 1),
-        distribution=container.resolve(SurfaceQuestionDistribution).at(1),
-    )
-    assert problem.question_id
+    request = GenerationRequest(3, 1)
+    recipe = container.resolve(SurfaceProblemRecipeDistribution).at(1).sample(Random(3))
+    problem = recipe.generate(request)
+    assert problem.recipe_id
     assert problem.sections

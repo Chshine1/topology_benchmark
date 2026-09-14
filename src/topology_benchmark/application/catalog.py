@@ -1,22 +1,22 @@
+from collections.abc import Mapping
 from dataclasses import dataclass
+from random import Random
 from typing import Any
 
-from topology_benchmark.application.errors import UnknownDomainError, UnknownQuestionError
+from topology_benchmark.application.errors import UnknownDomainError, UnknownProblemRecipeError
+from topology_benchmark.core.probability.distribution import FiniteDistribution
 from topology_benchmark.core.problem.models import GenerationRequest, Problem
-from topology_benchmark.core.problem.provider import IProblemProvider
-from topology_benchmark.core.problem.question_distribution import (
-    IQuestionDistributionResolver,
-    QuestionCatalog,
-    QuestionDistribution,
+from topology_benchmark.core.problem.recipe import IProblemRecipe, ProblemRecipeCatalog
+from topology_benchmark.core.problem.recipe_distribution import (
+    IProblemRecipeDistribution,
 )
 
 
 @dataclass(frozen=True, slots=True)
 class BenchmarkRegistration:
     id: str
-    provider: IProblemProvider[Any, Any]
-    questions: QuestionCatalog[Any]
-    default_distribution: IQuestionDistributionResolver[Any]
+    recipes: ProblemRecipeCatalog[Any]
+    default_distribution: IProblemRecipeDistribution[Any]
 
 
 class BenchmarkCatalog:
@@ -39,14 +39,9 @@ class BenchmarkCatalog:
     def require_domain(self, domain: str) -> None:
         self._get_required_registration(domain)
 
-    def require_question(self, domain: str, question_id: str) -> None:
+    def require_recipe(self, domain: str, recipe_id: str) -> None:
         registration = self._get_required_registration(domain)
-        try:
-            registration.questions[question_id]
-        except KeyError as error:
-            raise UnknownQuestionError(
-                domain, question_id, tuple(sorted(registration.questions))
-            ) from error
+        self._get_required_recipe(registration, recipe_id)
 
     def generate(
         self,
@@ -56,7 +51,28 @@ class BenchmarkCatalog:
     ) -> Problem[Any]:
         registration = self._get_required_registration(domain)
         distribution = registration.default_distribution.at(request.difficulty)
-        return registration.provider.generate(request=request, distribution=distribution)
+        return distribution.sample(Random(request.seed)).generate(request)
+
+    def recipe_distribution(
+        self,
+        *,
+        domain: str,
+        difficulty: int,
+    ) -> FiniteDistribution[IProblemRecipe[object]]:
+        registration = self._get_required_registration(domain)
+        return registration.default_distribution.at(difficulty)
+
+    def configured_recipe_distribution(
+        self,
+        *,
+        domain: str,
+        weights: Mapping[str, float],
+    ) -> FiniteDistribution[IProblemRecipe[object]]:
+        registration = self._get_required_registration(domain)
+        return FiniteDistribution.weighted(
+            (self._get_required_recipe(registration, recipe_id), weight)
+            for recipe_id, weight in weights.items()
+        )
 
     def generate_recipe(
         self,
@@ -66,14 +82,18 @@ class BenchmarkCatalog:
         recipe_id: str,
     ) -> Problem[Any]:
         registration = self._get_required_registration(domain)
+        return self._get_required_recipe(registration, recipe_id).generate(request)
+
+    @staticmethod
+    def _get_required_recipe(
+        registration: BenchmarkRegistration, recipe_id: str
+    ) -> IProblemRecipe[Any]:
         try:
-            question = registration.questions[recipe_id]
+            return registration.recipes[recipe_id]
         except KeyError as error:
-            raise UnknownQuestionError(
-                domain, recipe_id, tuple(sorted(registration.questions))
+            raise UnknownProblemRecipeError(
+                registration.id, recipe_id, tuple(sorted(registration.recipes))
             ) from error
-        distribution = QuestionDistribution.concentrated(question)
-        return registration.provider.generate(request=request, distribution=distribution)
 
     def _get_required_registration(self, domain: str) -> BenchmarkRegistration:
         try:

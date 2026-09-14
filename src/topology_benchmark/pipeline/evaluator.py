@@ -31,9 +31,9 @@ class BenchmarkEvaluator:
         correct = Counter[str]()
         totals = Counter[str]()
         for item in generated.items:
-            response, error = self._answer(item.problem.question, item.problem.sections)
+            response, error = self._answer(item.problem.prompt, item.problem.sections)
             is_correct = error is None and self._answer_scorer.score(item.problem.answer, response)
-            key = f"{item.domain}/{item.problem.question_id}"
+            key = f"{item.domain}/{item.problem.recipe_id}"
             totals[key] += 1
             correct[key] += int(is_correct)
             predictions.append(

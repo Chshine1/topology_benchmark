@@ -73,6 +73,7 @@ class SurfacePresentation:
     )
     gluings: tuple[EdgeGluing, ...]
     paths: tuple[SurfacePath, ...] = ()
+    edge_labels: tuple[tuple[EdgeRef, str], ...] = ()
 
     def __attrs_post_init__(self) -> None:
         used: set[EdgeRef] = set()
@@ -86,6 +87,17 @@ class SurfacePresentation:
                 raise ValueError("gluing labels must be unique")
             used.update((gluing.first, gluing.second))
             labels.add(gluing.label)
+
+        labelled_edges: set[EdgeRef] = set()
+        display_labels: set[str] = set()
+        for edge, label in self.edge_labels:
+            self._validate_edge(edge)
+            if edge in labelled_edges:
+                raise ValueError("each edge can have at most one display label")
+            if not label.strip() or label in display_labels:
+                raise ValueError("display edge labels must be nonblank and unique")
+            labelled_edges.add(edge)
+            display_labels.add(label)
 
         quotient_vertices = self.quotient_vertices()
         for path in self.paths:

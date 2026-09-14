@@ -10,8 +10,8 @@ from matplotlib.patches import FancyArrowPatch
 from matplotlib.patches import Polygon as PolygonPatch
 
 from topology_benchmark.core.problem.models import GenerationRequest, QuestionSection
+from topology_benchmark.domains.surfaces.abstractions import ISurfaceRepresentation
 from topology_benchmark.domains.surfaces.models import EdgeRef, SurfacePresentation
-from topology_benchmark.domains.surfaces.ports import ISurfaceRepresentation
 from topology_benchmark.domains.surfaces.rendering.config import (
     SurfaceRenderingConfig,
 )
@@ -36,8 +36,6 @@ class MatplotlibGluingDiagramRenderer(ISurfaceRepresentation):
         obj: SurfacePresentation,
         request: GenerationRequest,
         rng: Random,
-        *,
-        edge_labels: tuple[tuple[EdgeRef, str], ...] = (),
     ) -> QuestionSection:
         del rng
         plan = self._planner.plan(obj, Random((request.seed << 8) ^ 0xA53C9E))
@@ -51,7 +49,7 @@ class MatplotlibGluingDiagramRenderer(ISurfaceRepresentation):
         axes = figure.add_axes((0, 0, 1, 1))
         self._configure_axes(axes, plan)
         self._draw_polygons(axes, obj, plan)
-        self._draw_edge_labels(axes, plan, edge_labels)
+        self._draw_edge_labels(axes, plan, obj.edge_labels)
         for curve in plan.curves:
             self._draw_path_curve(
                 axes,

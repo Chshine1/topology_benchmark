@@ -1,9 +1,16 @@
 from abc import ABC, abstractmethod
 from typing import override
 
+from attrs import evolve
+
 from topology_benchmark.core.probability.sampling import SamplingSession
 from topology_benchmark.core.problem.models import GenerationRequest, Problem
 from topology_benchmark.core.problem.recipe import IProblemRecipe
+from topology_benchmark.domains.surfaces.abstractions import (
+    ISurfaceGenerator,
+    ISurfaceRepresentation,
+    SurfaceAnswer,
+)
 from topology_benchmark.domains.surfaces.generation.config import SurfaceGenerationConfig
 from topology_benchmark.domains.surfaces.generation.context.object import (
     SurfaceObjectGenerationContext,
@@ -12,16 +19,11 @@ from topology_benchmark.domains.surfaces.models import (
     EdgeRef,
     SurfacePresentation,
 )
-from topology_benchmark.domains.surfaces.ports import (
-    ISurfaceGenerator,
-    ISurfaceRepresentation,
-    SurfaceAnswer,
-)
-from topology_benchmark.domains.surfaces.questions.answers import integral_homology
+from topology_benchmark.domains.surfaces.recipes.homology import integral_homology
 from topology_benchmark.domains.surfaces.services import SurfaceAnalyzer
 
 
-class SurfaceObjectQuestion(IProblemRecipe[SurfaceAnswer], ABC):
+class SurfaceObjectProblemRecipe(IProblemRecipe[SurfaceAnswer], ABC):
     id = ""
 
     def __init__(
@@ -46,22 +48,18 @@ class SurfaceObjectQuestion(IProblemRecipe[SurfaceAnswer], ABC):
             sampling,
         )
         surface = self._generator.generate_for(context)
-        section = self._representation.render(
-            surface,
-            request,
-            sampling.rng("render.object"),
-            edge_labels=self._edge_labels(surface),
-        )
+        observed = evolve(surface, edge_labels=self._edge_labels(surface))
+        section = self._representation.render(observed, request, sampling.rng("render.object"))
         return Problem(
-            self._question(surface),
+            self._prompt(observed),
             (section,),
-            self._answer(surface),
+            self._answer(observed),
             request.seed,
             self.id,
         )
 
     @abstractmethod
-    def _question(self, surface: SurfacePresentation, /) -> str: ...
+    def _prompt(self, surface: SurfacePresentation, /) -> str: ...
 
     @abstractmethod
     def _answer(self, surface: SurfacePresentation, /) -> SurfaceAnswer: ...
@@ -70,11 +68,11 @@ class SurfaceObjectQuestion(IProblemRecipe[SurfaceAnswer], ABC):
         return ()
 
 
-class EulerCharacteristicQuestion(SurfaceObjectQuestion):
+class EulerCharacteristicProblemRecipe(SurfaceObjectProblemRecipe):
     id = "euler-characteristic"
 
     @override
-    def _question(self, _surface: SurfacePresentation, /) -> str:
+    def _prompt(self, _surface: SurfacePresentation, /) -> str:
         return "What is the Euler characteristic of the glued surface?"
 
     @override
@@ -82,11 +80,11 @@ class EulerCharacteristicQuestion(SurfaceObjectQuestion):
         return self._analyzer.analyze(surface).euler_characteristic
 
 
-class BoundaryComponentsQuestion(SurfaceObjectQuestion):
+class BoundaryComponentsProblemRecipe(SurfaceObjectProblemRecipe):
     id = "boundary-components"
 
     @override
-    def _question(self, _surface: SurfacePresentation, /) -> str:
+    def _prompt(self, _surface: SurfacePresentation, /) -> str:
         return "How many boundary components remain after all marked gluings?"
 
     @override
@@ -94,11 +92,11 @@ class BoundaryComponentsQuestion(SurfaceObjectQuestion):
         return self._analyzer.analyze(surface).boundary_components
 
 
-class ConnectedComponentsQuestion(SurfaceObjectQuestion):
+class ConnectedComponentsProblemRecipe(SurfaceObjectProblemRecipe):
     id = "connected-components"
 
     @override
-    def _question(self, _surface: SurfacePresentation, /) -> str:
+    def _prompt(self, _surface: SurfacePresentation, /) -> str:
         return "How many connected components does the quotient surface have?"
 
     @override
@@ -106,11 +104,11 @@ class ConnectedComponentsQuestion(SurfaceObjectQuestion):
         return len(self._analyzer.analyze(surface).components)
 
 
-class OrientableQuestion(SurfaceObjectQuestion):
+class OrientableProblemRecipe(SurfaceObjectProblemRecipe):
     id = "orientable"
 
     @override
-    def _question(self, _surface: SurfacePresentation, /) -> str:
+    def _prompt(self, _surface: SurfacePresentation, /) -> str:
         return "Is every connected component of the quotient surface orientable?"
 
     @override
@@ -118,11 +116,11 @@ class OrientableQuestion(SurfaceObjectQuestion):
         return all(component.orientable for component in self._analyzer.analyze(surface).components)
 
 
-class HomologyGroupsQuestion(SurfaceObjectQuestion):
+class HomologyGroupsProblemRecipe(SurfaceObjectProblemRecipe):
     id = "homology-groups"
 
     @override
-    def _question(self, _surface: SurfacePresentation, /) -> str:
+    def _prompt(self, _surface: SurfacePresentation, /) -> str:
         return "Compute H_0, H_1, and H_2 with integer coefficients."
 
     @override
@@ -130,11 +128,11 @@ class HomologyGroupsQuestion(SurfaceObjectQuestion):
         return integral_homology(self._analyzer, surface)
 
 
-class PathIsCycleQuestion(SurfaceObjectQuestion):
+class PathIsCycleProblemRecipe(SurfaceObjectProblemRecipe):
     id = "path-is-cycle"
 
     @override
-    def _question(self, surface: SurfacePresentation, /) -> str:
+    def _prompt(self, surface: SurfacePresentation, /) -> str:
         return f"Does the displayed path {surface.paths[0].name} define a 1-cycle?"
 
     @override
@@ -142,11 +140,11 @@ class PathIsCycleQuestion(SurfaceObjectQuestion):
         return self._analyzer.path_is_cycle(surface, surface.paths[0])
 
 
-class PathRepresentativeQuestion(SurfaceObjectQuestion):
+class PathRepresentativeProblemRecipe(SurfaceObjectProblemRecipe):
     id = "path-representative"
 
     @override
-    def _question(self, surface: SurfacePresentation, /) -> str:
+    def _prompt(self, surface: SurfacePresentation, /) -> str:
         generators = self._analyzer.h1_edge_generators(surface)
         used_edges = sorted(
             edge

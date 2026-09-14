@@ -1,5 +1,5 @@
 import math
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from random import Random
 from typing import Protocol, override
 
@@ -46,6 +46,14 @@ class FiniteDistribution[T](IDistribution[T]):
             if threshold < cumulative:
                 return item.value
         return self.values[-1].value
+
+    @classmethod
+    def weighted(cls, values: Iterable[tuple[T, float]]) -> FiniteDistribution[T]:
+        return cls(tuple(WeightedValue(value, weight) for value, weight in values))
+
+    @classmethod
+    def concentrated(cls, value: T) -> FiniteDistribution[T]:
+        return cls((WeightedValue(value, 1.0),))
 
     @property
     def total_weight(self) -> float:

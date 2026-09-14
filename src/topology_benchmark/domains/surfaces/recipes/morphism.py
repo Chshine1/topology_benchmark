@@ -4,6 +4,11 @@ from typing import override
 from topology_benchmark.core.probability.sampling import SamplingSession
 from topology_benchmark.core.problem.models import GenerationRequest, Problem
 from topology_benchmark.core.problem.recipe import IProblemRecipe
+from topology_benchmark.domains.surfaces.abstractions import (
+    ISurfaceMorphismGenerator,
+    ISurfaceRepresentation,
+    SurfaceAnswer,
+)
 from topology_benchmark.domains.surfaces.generation.config import SurfaceGenerationConfig
 from topology_benchmark.domains.surfaces.generation.context.morphism import (
     SurfaceMorphismGenerationContext,
@@ -13,16 +18,11 @@ from topology_benchmark.domains.surfaces.models import (
     PolygonAttachmentMorphism,
     SurfaceMorphism,
 )
-from topology_benchmark.domains.surfaces.ports import (
-    ISurfaceMorphismGenerator,
-    ISurfaceRepresentation,
-    SurfaceAnswer,
-)
-from topology_benchmark.domains.surfaces.questions.answers import integral_homology
+from topology_benchmark.domains.surfaces.recipes.homology import integral_homology
 from topology_benchmark.domains.surfaces.services import SurfaceAnalyzer
 
 
-class SurfaceMorphismQuestion(IProblemRecipe[SurfaceAnswer], ABC):
+class SurfaceMorphismProblemRecipe(IProblemRecipe[SurfaceAnswer], ABC):
     id = ""
     prompt = ""
 
@@ -52,17 +52,17 @@ class SurfaceMorphismQuestion(IProblemRecipe[SurfaceAnswer], ABC):
             self._representation.render(obj, request, sampling.rng(f"render.{name}"))
             for name, obj in (("source", morphism.source), ("target", morphism.target))
         )
-        question = (
+        prompt = (
             "The first diagram is the source and the second is the target of the indicated "
             f"{morphism.name.replace('-', ' ')}. {self.prompt}"
         )
-        return Problem(question, sections, self._answer(morphism), request.seed, self.id)
+        return Problem(prompt, sections, self._answer(morphism), request.seed, self.id)
 
     @abstractmethod
     def _answer(self, morphism: SurfaceMorphism, /) -> SurfaceAnswer: ...
 
 
-class EulerChangeQuestion(SurfaceMorphismQuestion):
+class EulerChangeProblemRecipe(SurfaceMorphismProblemRecipe):
     id, prompt = "euler-change", "What is chi(target) - chi(source)?"
 
     @override
@@ -73,7 +73,7 @@ class EulerChangeQuestion(SurfaceMorphismQuestion):
         )
 
 
-class BoundaryChangeQuestion(SurfaceMorphismQuestion):
+class BoundaryChangeProblemRecipe(SurfaceMorphismProblemRecipe):
     id, prompt = "boundary-change", "What is the target boundary count minus the source count?"
 
     @override
@@ -84,7 +84,7 @@ class BoundaryChangeQuestion(SurfaceMorphismQuestion):
         )
 
 
-class ComponentChangeQuestion(SurfaceMorphismQuestion):
+class ComponentChangeProblemRecipe(SurfaceMorphismProblemRecipe):
     id, prompt = "component-change", "What is the target component count minus the source count?"
 
     @override
@@ -94,7 +94,7 @@ class ComponentChangeQuestion(SurfaceMorphismQuestion):
         )
 
 
-class TargetHomologyQuestion(SurfaceMorphismQuestion):
+class TargetHomologyProblemRecipe(SurfaceMorphismProblemRecipe):
     id, prompt = "target-homology", "Compute the integral homology of the target."
 
     @override
@@ -102,7 +102,7 @@ class TargetHomologyQuestion(SurfaceMorphismQuestion):
         return integral_homology(self._analyzer, morphism.target)
 
 
-class MapInjectiveQuestion(SurfaceMorphismQuestion):
+class MapInjectiveProblemRecipe(SurfaceMorphismProblemRecipe):
     id, prompt = "map-injective", "Is this map injective on surface points?"
 
     @override
@@ -110,7 +110,7 @@ class MapInjectiveQuestion(SurfaceMorphismQuestion):
         return isinstance(morphism, PolygonAttachmentMorphism)
 
 
-class MapSurjectiveQuestion(SurfaceMorphismQuestion):
+class MapSurjectiveProblemRecipe(SurfaceMorphismProblemRecipe):
     id, prompt = "map-surjective", "Is this map surjective onto the target?"
 
     @override
@@ -118,7 +118,7 @@ class MapSurjectiveQuestion(SurfaceMorphismQuestion):
         return isinstance(morphism, BoundaryGluingMorphism)
 
 
-class HomologyIsomorphismQuestion(SurfaceMorphismQuestion):
+class HomologyIsomorphismProblemRecipe(SurfaceMorphismProblemRecipe):
     id, prompt = "homology-isomorphism", "Does this map induce integral homology isomorphisms?"
 
     @override
@@ -126,7 +126,7 @@ class HomologyIsomorphismQuestion(SurfaceMorphismQuestion):
         return isinstance(morphism, PolygonAttachmentMorphism)
 
 
-class TargetOrientableQuestion(SurfaceMorphismQuestion):
+class TargetOrientableProblemRecipe(SurfaceMorphismProblemRecipe):
     id, prompt = "target-orientable", "Is every target component orientable?"
 
     @override

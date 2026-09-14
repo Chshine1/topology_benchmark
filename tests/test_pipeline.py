@@ -6,7 +6,7 @@ from typing import cast, override
 import pytest
 
 from topology_benchmark.application.bootstrap import build_container
-from topology_benchmark.application.errors import UnknownDomainError, UnknownQuestionError
+from topology_benchmark.application.errors import UnknownDomainError, UnknownProblemRecipeError
 from topology_benchmark.core.problem.models import QuestionSection
 from topology_benchmark.pipeline import (
     BenchmarkDatasetGenerator,
@@ -67,8 +67,8 @@ generation:
     container = build_container()
     add_pipeline_domain(container, config)
     generator = container.resolve(BenchmarkDatasetGenerator)
-    first = generator.generate_items(123)
-    second = generator.generate_items(123)
+    first = generator._generate_items(123)
+    second = generator._generate_items(123)
 
     assert first == second
     output = _evaluate_with_fixed_provider(config)
@@ -82,11 +82,45 @@ generation:
     assert len(public) == len(private) == 2
     assert "answer" not in public[0]
     assert "generator_seed" not in public[0]
-    assert set(private[0]) == {"id", "answer", "generator_seed", "question_id"}
+    assert set(private[0]) == {"id", "answer", "generator_seed", "recipe_id"}
     assert (output / public[0]["media"][0]["path"]).exists()
     assert (output / "summary.json").exists()
     manifest = json.loads((output / "manifest.private.json").read_text())
+    assert manifest["schema_version"] == 2
     assert "generator_profiles" not in manifest
+
+
+def test_pipeline_exposes_the_composed_generation_distribution(tmp_path: Path) -> None:
+    config = PipelineConfig(
+        size=1,
+        output_dir=tmp_path,
+        domains={
+            "surfaces": WeightedConfig(
+                weight=2,
+                generation_levels={4: 1, 8: 3},
+                recipes={"euler-characteristic": 1, "orientable": 1},
+            ),
+            "torus-slices": WeightedConfig(
+                weight=1,
+                generation_levels={8: 1},
+                recipes={"completely-unlinked": 1},
+            ),
+        },
+    )
+    container = build_container()
+    add_pipeline_domain(container, config)
+
+    distribution = container.resolve(BenchmarkDatasetGenerator)._generation_distribution
+
+    assert distribution.probability(
+        lambda selection: selection.domain == "surfaces"
+        and selection.difficulty == 8
+        and selection.recipe.id == "euler-characteristic"
+    ) == pytest.approx(0.25)
+    assert distribution.probability(
+        lambda selection: selection.domain == "torus-slices"
+        and selection.recipe.id == "completely-unlinked"
+    ) == pytest.approx(1 / 3)
 
 
 def test_answer_extraction_and_typed_scoring() -> None:
@@ -113,7 +147,8 @@ def test_model_provider_dispatches_text_and_image_sections(monkeypatch: pytest.M
         def __exit__(self, *_args: object) -> None:
             pass
 
-        def read(self) -> bytes:
+        @staticmethod
+        def read() -> bytes:
             return b'{"choices":[{"message":{"content":"ok"}}]}'
 
     def urlopen(request, timeout: float):
@@ -200,7 +235,7 @@ generation:
         encoding="utf-8",
     )
 
-    with pytest.raises(UnknownQuestionError, match="unknown question"):
+    with pytest.raises(UnknownProblemRecipeError, match="unknown problem recipe"):
         config = load_pipeline_config(unknown_recipe)
         container = build_container()
         add_pipeline_domain(container, config)

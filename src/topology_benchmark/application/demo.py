@@ -216,14 +216,14 @@ _INDEX_HTML = """<!doctype html>
         + `&seed=${encodeURIComponent(seed)}&difficulty=${difficulty}`;
       const response = await fetch(endpoint); const problem = await response.json();
       if (!response.ok) throw new Error(problem.error || response.statusText);
-      byId('question').textContent = problem.question;
+      byId('question').textContent = problem.prompt;
       byId('problem-details').textContent = formatJson(
-        {seed: problem.seed, question_id: problem.question_id});
+        {seed: problem.seed, recipe_id: problem.recipe_id});
       byId('answer').textContent = formatJson(problem.answer);
       byId('sections').replaceChildren(...problem.sections.map(renderSection));
       history.replaceState(null, '', `/?domain=${encodeURIComponent(domain)}`
         + `&seed=${encodeURIComponent(seed)}&difficulty=${difficulty}`);
-      byId('status').textContent = `${domain} · ${problem.question_id} · seed ${problem.seed}`;
+      byId('status').textContent = `${domain} · ${problem.recipe_id} · seed ${problem.seed}`;
     } catch (error) { byId('status').textContent = error.message; }
   }
   byId('difficulty').addEventListener('input', event => {

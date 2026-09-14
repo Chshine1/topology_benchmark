@@ -11,7 +11,7 @@ from topology_benchmark.core.probability.distribution import (
     WeightedValue,
 )
 from topology_benchmark.core.problem.models import GenerationRequest
-from topology_benchmark.domains.surfaces.models import Polygon, SurfacePresentation
+from topology_benchmark.domains.surfaces.models import EdgeRef, Polygon, SurfacePresentation
 from topology_benchmark.domains.surfaces.rendering.config import load_rendering_config
 from topology_benchmark.pipeline.config import load_pipeline_config
 
@@ -64,6 +64,12 @@ def test_attrs_models_are_frozen_and_generated_init_runs_invariants() -> None:
         presentation.__setattr__("paths", ())
     with pytest.raises(ValueError, match="at least one polygon"):
         SurfacePresentation((), ())
+    with pytest.raises(ValueError, match="display edge labels"):
+        SurfacePresentation(
+            (Polygon("P", 3),),
+            (),
+            edge_labels=((EdgeRef(0, 0), "A"), (EdgeRef(0, 1), "A")),
+        )
 
 
 def test_rendering_yaml_is_strict(tmp_path: Path) -> None:

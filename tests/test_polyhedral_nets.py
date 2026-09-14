@@ -16,13 +16,12 @@ from topology_benchmark.domains.polyhedral_nets import (
     PolyhedralNetAnalyzer,
     VertexType,
 )
-from topology_benchmark.domains.polyhedral_nets.benchmark import PolyhedralNetsBenchmark
+from topology_benchmark.domains.polyhedral_nets.abstractions import (
+    PolyhedralProblemRecipeDistribution,
+)
 from topology_benchmark.domains.polyhedral_nets.generation.completion import NetQuestionCertifier
 from topology_benchmark.domains.polyhedral_nets.generation.polyhedral_net_generator import (
     RandomPolyhedralNetGenerator,
-)
-from topology_benchmark.domains.polyhedral_nets.question_distribution import (
-    PolyhedralQuestionDistribution,
 )
 from topology_benchmark.domains.polyhedral_nets.rendering.svg_renderer import (
     PolyhedralNetSvgRenderer,
@@ -33,11 +32,9 @@ from topology_benchmark.domains.polyhedral_nets.services.polyhedral_cell_graph_a
 )
 
 
-def _generate_default(benchmark, distribution, seed: int, difficulty: int):
-    return benchmark.generate(
-        request=GenerationRequest(seed, difficulty),
-        distribution=distribution.at(difficulty),
-    )
+def _generate_default(distribution, seed: int, difficulty: int):
+    request = GenerationRequest(seed, difficulty)
+    return distribution.at(difficulty).sample(Random(seed)).generate(request)
 
 
 def _bipyramid(size: int, *, seed: int = 3):
@@ -121,14 +118,13 @@ def test_renderer_hides_matches_but_labels_boundary_edges() -> None:
 
 def test_benchmark_is_reproducible_and_wired_into_container() -> None:
     container = build_container()
-    benchmark = container.resolve(PolyhedralNetsBenchmark)
-    distribution = container.resolve(PolyhedralQuestionDistribution)
-    first = _generate_default(benchmark, distribution, 42, 10)
-    second = _generate_default(benchmark, distribution, 42, 10)
+    distribution = container.resolve(PolyhedralProblemRecipeDistribution)
+    first = _generate_default(distribution, 42, 10)
+    second = _generate_default(distribution, 42, 10)
 
     assert first == second
-    assert first.question_id
-    assert first.question
+    assert first.recipe_id
+    assert first.prompt
     assert first.sections
 
 
@@ -168,17 +164,16 @@ def test_v2_sources_are_real_irregular_polyhedra_with_nonoverlapping_development
 
 def test_v6_benchmark_uses_certified_sparse_observations_without_answer_leakage() -> None:
     container = build_container()
-    benchmark = container.resolve(PolyhedralNetsBenchmark)
-    distribution = container.resolve(PolyhedralQuestionDistribution)
+    distribution = container.resolve(PolyhedralProblemRecipeDistribution)
 
-    problems = [_generate_default(benchmark, distribution, seed, 10) for seed in range(25)]
+    problems = [_generate_default(distribution, seed, 10) for seed in range(25)]
 
     assert all("diagram drawn to scale" in problem.sections[0].content for problem in problems)
-    assert len({problem.question_id for problem in problems}) >= 5
-    assert all(problem.question_id != "highest-vertex" for problem in problems)
-    assert all(problem.question_id != "isometric" for problem in problems)
-    assert all(problem.question_id != "corner-coincidence" for problem in problems)
-    assert all(problem.question_id != "face-relation" for problem in problems)
+    assert len({problem.recipe_id for problem in problems}) >= 5
+    assert all(problem.recipe_id != "highest-vertex" for problem in problems)
+    assert all(problem.recipe_id != "isometric" for problem in problems)
+    assert all(problem.recipe_id != "corner-coincidence" for problem in problems)
+    assert all(problem.recipe_id != "face-relation" for problem in problems)
 
 
 def test_renderer_only_shows_v2_labels_selected_by_the_question() -> None:
@@ -238,16 +233,14 @@ def test_visual_tolerance_preserves_pairings_hidden_by_exact_metrics() -> None:
 
 def test_curvature_questions_show_all_corner_angles_and_have_a_margin() -> None:
     container = build_container()
-    benchmark = container.resolve(PolyhedralNetsBenchmark)
-    distribution = container.resolve(PolyhedralQuestionDistribution)
+    distribution = container.resolve(PolyhedralProblemRecipeDistribution)
     problem = next(
         problem
         for seed in range(100)
-        if (problem := _generate_default(benchmark, distribution, seed, 10)).question_id
-        == "curvature-order"
+        if (problem := _generate_default(distribution, seed, 10)).recipe_id == "curvature-order"
     )
 
-    assert "nearest degree" in problem.question
+    assert "nearest degree" in problem.prompt
     assert "°" in problem.sections[0].content
     assert problem.answer in {"A", "B"}
 
@@ -269,13 +262,11 @@ def test_cell_distance_unifies_face_incidence_and_shortest_path_count() -> None:
 
 def test_vertex_partition_replaces_binary_corner_coincidence() -> None:
     container = build_container()
-    benchmark = container.resolve(PolyhedralNetsBenchmark)
-    distribution = container.resolve(PolyhedralQuestionDistribution)
+    distribution = container.resolve(PolyhedralProblemRecipeDistribution)
     problem = next(
         problem
         for seed in range(60)
-        if (problem := _generate_default(benchmark, distribution, seed, 10)).question_id
-        == "vertex-partition"
+        if (problem := _generate_default(distribution, seed, 10)).recipe_id == "vertex-partition"
     )
 
     assert isinstance(problem.answer, str)
@@ -292,8 +283,8 @@ def test_comparison_rendering_can_use_one_scale_and_matched_face_inventories() -
     first, second = generator.generate_isometry_pair(request, Random(9), isometric=False)
     scale = renderer.common_scale((first.net, second.net))
 
-    first_section = renderer.render(first.net, request, Random(1), scale=scale)
-    second_section = renderer.render(second.net, request, Random(2), scale=scale)
+    first_section = renderer.render(evolve(first.net, display_scale=scale), request, Random(1))
+    second_section = renderer.render(evolve(second.net, display_scale=scale), request, Random(2))
 
     assert tuple(face.sides for face in first.net.faces) == tuple(
         face.sides for face in second.net.faces

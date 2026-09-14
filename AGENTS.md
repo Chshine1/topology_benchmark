@@ -92,23 +92,30 @@
 - Model adapters must handle each supported question-section media type explicitly and reject
   unsupported types before making an external request. Do not silently encode every section as the
   provider's dominant media type.
+- Keep concrete representation method signatures aligned with their shared representation
+  protocol. Put domain-specific display annotations on the immutable observed value passed to the
+  renderer instead of widening `render` with optional keyword parameters.
 - Keep response extraction and answer-equivalence policy behind an injected scoring boundary.
   Pipeline orchestration must not grow a central type switch whenever a domain adds an answer form.
-- Represent question selection as a distribution over registered question objects. Question-specific
-  generation parameters belong in typed configuration carried by the question; generators must not
-  inspect question IDs to choose behavior.
-- Resolve external question IDs and difficulty-aware defaults at the application boundary into one
-  non-null distribution before calling a provider. Do not encode ID, override-distribution, and
-  default-distribution selection as parallel nullable provider or selector arguments.
-- Keep benchmark providers as orchestration shells: resolve a selected question, invoke its domain
-  lifecycle, and return the result. Adding a question must not require extending a central dispatch
-  branch in a benchmark or generator.
-- Express a question's stochastic generation intent as a typed distribution over semantic outcomes,
+- Represent problem-recipe selection as a distribution over registered recipe objects. Recipe-specific
+  generation parameters belong in typed configuration carried by the recipe; generators must not
+  inspect recipe IDs to choose behavior.
+- Resolve external recipe IDs and difficulty-aware defaults at the application boundary into one
+  non-null distribution before sampling a recipe. Do not encode ID, override-distribution, and
+  default-distribution selection as parallel nullable recipe or selector arguments.
+- Make each registered problem recipe own its complete generation lifecycle and return a concrete
+  problem from `generate`. Selection boundaries should resolve and distribute recipe objects, then
+  invoke the selected recipe directly; adding a recipe must not extend a central dispatch branch.
+- Express a recipe's stochastic generation intent as a typed distribution over semantic outcomes,
   constraints, or annotated domain objects. Do not encode it as coarse question-category enums or
   boolean hints that generators translate through hidden probability branches.
 - Keep semantic laws separate from their realization algorithms. Finite laws should retain exact
   operations such as conditioning, pushforward, probability, and expectation; generators may use
   bounded sampling to realize a selected outcome when the full object space is not enumerable.
+- Use the shared finite-distribution abstraction for weighted selection across domains, difficulty
+  levels, problem recipes, and semantic outcomes. Compose dependent selections with distribution
+  operations so the joint law remains available for exact inspection; do not implement local
+  weighted-choice sampling loops.
 
 ## Properties and data
 
@@ -136,9 +143,13 @@
 ## Maintenance and architectural memory
 
 - Treat a package root as a human navigation boundary. Keep roughly four or five ordinary modules
-  there, limited to recurring architectural entrypoints such as `config.py`, `ports.py`,
+  there, limited to recurring architectural entrypoints such as `abstractions.py`, `config.py`,
   `registration.py`, and primary orchestration services. Group implementation details into
   role-oriented subpackages before the root becomes a flat inventory.
+- Consolidate a domain's public boundary protocols, answer type, recipe catalog, and recipe
+  distribution in its root `abstractions.py`. Do not fragment these closely related declarations
+  into one-abstraction root modules such as `ports.py`, `recipe_catalog.py`, or
+  `recipe_distribution.py`.
 - Organize pipeline support by the lifecycle it serves, such as `dataset/` or `evaluation/`. Do not
   create broad technical buckets such as `artifacts/` when their contents belong to distinct
   workflows.
@@ -157,6 +168,9 @@
   `runner`, `manager`, `helpers`, or `utils` when the contents span generation, evaluation,
   persistence, or other distinct lifecycles; split those roles and keep shared leaf operations
   inside the narrowest owning package.
+- Keep domain problem-recipe implementations in a `recipes/` package. Put their shared lifecycle
+  in `base.py` and group concrete recipes into subject- or feature-named modules; do not collect a
+  recipe family in a generic `question.py` module or retain the obsolete `questions/` package name.
 - Do not preserve obsolete import modules, renamed-symbol aliases, forwarding properties, or
   test-only helpers in production solely for backward compatibility. Update repository callers
   to the canonical API and remove the legacy surface; keep specialized fixtures in tests.

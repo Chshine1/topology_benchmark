@@ -16,8 +16,9 @@ from topology_benchmark.domains.torus_slices import (
     TorusFamilyAnalyzer,
     TorusGenerationContext,
 )
-from topology_benchmark.domains.torus_slices.benchmark import TorusSlicesBenchmark
-from topology_benchmark.domains.torus_slices.question_distribution import TorusQuestionDistribution
+from topology_benchmark.domains.torus_slices.abstractions import (
+    TorusProblemRecipeDistribution,
+)
 
 
 def test_disk_intersection_computes_hopf_link_and_unlink() -> None:
@@ -79,7 +80,7 @@ def test_complete_hopf_link_has_every_pair_linked() -> None:
 
 
 def test_scored_profile_does_not_emit_ambiguous_observation_puzzles() -> None:
-    distribution = build_container().resolve(TorusQuestionDistribution)
+    distribution = build_container().resolve(TorusProblemRecipeDistribution)
     kinds = {distribution.at(10).sample(Random(index)).id for index in range(100)}
 
     assert "slice-order" not in kinds
@@ -89,12 +90,12 @@ def test_scored_profile_does_not_emit_ambiguous_observation_puzzles() -> None:
 
 def test_benchmark_is_wired_and_hides_equations_and_core_circles() -> None:
     container = build_container()
-    benchmark = container.resolve(TorusSlicesBenchmark)
-    distribution = container.resolve(TorusQuestionDistribution).at(8)
-    first = benchmark.generate(request=GenerationRequest(8, 8), distribution=distribution)
-    second = benchmark.generate(request=GenerationRequest(8, 8), distribution=distribution)
+    distribution = container.resolve(TorusProblemRecipeDistribution).at(8)
+    recipe = distribution.sample(Random(8))
+    first = recipe.generate(GenerationRequest(8, 8))
+    second = recipe.generate(GenerationRequest(8, 8))
 
     assert first == second
-    assert first.question_id in {"linked-pair-count", "completely-unlinked"}
+    assert first.recipe_id in {"linked-pair-count", "completely-unlinked"}
     assert first.sections[0].media_type == "image/svg+xml"
     assert "Parallel level sections" in first.sections[0].content

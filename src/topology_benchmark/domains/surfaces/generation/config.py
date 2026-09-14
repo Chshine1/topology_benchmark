@@ -62,11 +62,6 @@ class AnchoredValue(_StrictConfigModel):
 
 
 class DifficultyProfile(_StrictConfigModel):
-    global_question_weight: AnchoredValue
-    classification_question_weight: AnchoredValue
-    path_question_weight: AnchoredValue
-    relational_question_weight: AnchoredValue
-    target_only_question_weight: AnchoredValue
     polygon_count_weights: dict[int, AnchoredValue]
     side_continuation: AnchoredValue
     gluing_density: AnchoredValue
@@ -133,18 +128,16 @@ class SurfaceGenerationConfig(_StrictConfigModel):
     retry_limit: int
     morphism_retry_limit: int
     difficulty: DifficultyProfile
-    object_questions: dict[str, tuple[tuple[str, float], ...]]
+    recipe_weights: dict[str, AnchoredValue]
     object_laws: dict[str, tuple[SurfaceObjectOutcomeConfig, ...]]
-    subject_weights: dict[str, AnchoredValue]
-    morphism_questions: dict[str, tuple[tuple[str, float], ...]]
     morphism_laws: dict[str, SurfaceMorphismLawProfile]
 
-    def object_law_for(self, question_id: str) -> FiniteDistribution[SurfaceObjectCondition]:
+    def object_law_for(self, recipe_id: str) -> FiniteDistribution[SurfaceObjectCondition]:
         try:
-            outcomes = self.object_laws[question_id]
+            outcomes = self.object_laws[recipe_id]
         except KeyError as error:
             raise ConfigurationError(
-                f"no surface-object law is configured for {question_id!r}"
+                f"no surface-object law is configured for {recipe_id!r}"
             ) from error
         return FiniteDistribution(
             tuple(
@@ -159,16 +152,16 @@ class SurfaceGenerationConfig(_StrictConfigModel):
             )
         )
 
-    def morphism_law_for(self, question_id: str) -> SurfaceMorphismLawProfile:
+    def morphism_law_for(self, recipe_id: str) -> SurfaceMorphismLawProfile:
         try:
-            return self.morphism_laws[question_id]
+            return self.morphism_laws[recipe_id]
         except KeyError as error:
             raise ConfigurationError(
-                f"no surface-morphism law is configured for {question_id!r}"
+                f"no surface-morphism law is configured for {recipe_id!r}"
             ) from error
 
 
-class _QuestionFamilyWeights(_StrictConfigModel):
+class _RecipeFamilyWeights(_StrictConfigModel):
     global_: Anchors = Field(alias="global")
     classification: Anchors
     path: Anchors
@@ -185,7 +178,7 @@ class _ScalarProfiles(_StrictConfigModel):
 
 
 class _DifficultyInput(_StrictConfigModel):
-    question_family_weights: _QuestionFamilyWeights
+    recipe_family_weights: _RecipeFamilyWeights
     polygon_count_weights: Annotated[
         dict[PolygonCount, Anchors],
         Field(min_length=1),
@@ -193,7 +186,7 @@ class _DifficultyInput(_StrictConfigModel):
     scalar_profiles: _ScalarProfiles
 
 
-class _QuestionsInput(_StrictConfigModel):
+class _RecipesInput(_StrictConfigModel):
     object: dict[str, dict[str, Nonnegative]]
     morphism: dict[str, dict[str, Nonnegative]]
 
@@ -202,10 +195,10 @@ class _QuestionsInput(_StrictConfigModel):
         expected_object = {"global", "classification", "path"}
         expected_morphism = {"relational", "target-only"}
         if set(self.object) != expected_object or set(self.morphism) != expected_morphism:
-            raise ValueError("questions must configure every known subject family")
+            raise ValueError("recipes must configure every known subject family")
         groups = (*self.object.values(), *self.morphism.values())
         if any(not group or not any(group.values()) for group in groups):
-            raise ValueError("each question family needs a positive recipe weight")
+            raise ValueError("each recipe family needs a positive recipe weight")
         ids = [recipe for group in groups for recipe in group]
         if len(ids) != len(set(ids)):
             raise ValueError("recipe IDs must be unique across question families")
@@ -241,26 +234,26 @@ class _GenerationInput(_StrictConfigModel):
     retry_limit: Annotated[int, Field(ge=1)]
     morphism_retry_limit: Annotated[int, Field(ge=1)]
     difficulty: _DifficultyInput
-    questions: _QuestionsInput
+    recipes: _RecipesInput
     object_laws: dict[str, dict[str, SurfaceObjectOutcomeConfig]]
     subjects: _SubjectsInput
     morphisms: _MorphismsInput
 
     @model_validator(mode="after")
     def _has_complete_morphism_laws(self) -> Self:
-        recipes = {recipe for group in self.questions.morphism.values() for recipe in group}
+        recipes = {recipe for group in self.recipes.morphism.values() for recipe in group}
         families = set(self.morphisms.families)
         if set(self.morphisms.affinity) != recipes:
-            raise ValueError("morphism affinities must configure every morphism question ID")
+            raise ValueError("morphism affinities must configure every morphism recipe ID")
         if any(set(weights) != families for weights in self.morphisms.affinity.values()):
             raise ValueError("each morphism affinity must configure every morphism family")
         return self
 
     @model_validator(mode="after")
-    def _has_a_nonempty_law_for_every_object_question(self) -> Self:
-        recipes = {recipe for group in self.questions.object.values() for recipe in group}
+    def _has_a_nonempty_law_for_every_object_recipe(self) -> Self:
+        recipes = {recipe for group in self.recipes.object.values() for recipe in group}
         if set(self.object_laws) != recipes:
-            raise ValueError("object laws must configure every object question ID")
+            raise ValueError("object laws must configure every object recipe ID")
         if any(
             not outcomes or not any(item.weight for item in outcomes.values())
             for outcomes in self.object_laws.values()
@@ -281,7 +274,6 @@ def load_generation_config(
     if override_path is not None:
         merged = _deep_merge(merged, _read_yaml(Path(override_path)))
     source = _GenerationDocument.model_validate(merged).generation
-    question_weights = source.difficulty.question_family_weights
     scalar = source.difficulty.scalar_profiles
     return SurfaceGenerationConfig(
         profile_version=source.profile_version,
@@ -289,11 +281,6 @@ def load_generation_config(
         retry_limit=source.retry_limit,
         morphism_retry_limit=source.morphism_retry_limit,
         difficulty=DifficultyProfile(
-            global_question_weight=_anchored(question_weights.global_),
-            classification_question_weight=_anchored(question_weights.classification),
-            path_question_weight=_anchored(question_weights.path),
-            relational_question_weight=_anchored(question_weights.relational),
-            target_only_question_weight=_anchored(question_weights.target_only),
             polygon_count_weights={
                 count: _anchored(anchors)
                 for count, anchors in source.difficulty.polygon_count_weights.items()
@@ -304,19 +291,10 @@ def load_generation_config(
             path_maximum=_anchored(scalar.path_maximum),
             visual_budget=_anchored(scalar.visual_budget),
         ),
-        object_questions={
-            group: tuple(weights.items()) for group, weights in source.questions.object.items()
-        },
+        recipe_weights=_recipe_weight_profiles(source),
         object_laws={
-            question_id: tuple(outcomes.values())
-            for question_id, outcomes in source.object_laws.items()
-        },
-        subject_weights={
-            "object": _anchored(source.subjects.object),
-            "morphism": _anchored(source.subjects.morphism),
-        },
-        morphism_questions={
-            group: tuple(weights.items()) for group, weights in source.questions.morphism.items()
+            recipe_id: tuple(outcomes.values())
+            for recipe_id, outcomes in source.object_laws.items()
         },
         morphism_laws={
             recipe: SurfaceMorphismLawProfile(
@@ -333,6 +311,66 @@ def load_generation_config(
             for recipe, family_affinities in source.morphisms.affinity.items()
         },
     )
+
+
+def _recipe_weight_profiles(source: _GenerationInput) -> dict[str, AnchoredValue]:
+    recipe_ids = tuple(
+        recipe_id
+        for groups in (source.recipes.object, source.recipes.morphism)
+        for recipes in groups.values()
+        for recipe_id in recipes
+    )
+    anchors = {recipe_id: [] for recipe_id in recipe_ids}
+    for difficulty in range(1, 11):
+        distribution = _recipe_id_distribution(source, difficulty)
+        for recipe_id in recipe_ids:
+            anchors[recipe_id].append(
+                (
+                    difficulty,
+                    _recipe_probability(distribution, recipe_id),
+                )
+            )
+    return {
+        recipe_id: AnchoredValue(anchors=tuple(weights)) for recipe_id, weights in anchors.items()
+    }
+
+
+def _recipe_probability(distribution: FiniteDistribution[str], recipe_id: str) -> float:
+    return distribution.probability(lambda value: value == recipe_id)
+
+
+def _recipe_id_distribution(source: _GenerationInput, difficulty: int) -> FiniteDistribution[str]:
+    family_weights = source.difficulty.recipe_family_weights
+    families = {
+        "object": (
+            ("global", _weight_at(family_weights.global_, difficulty)),
+            ("classification", _weight_at(family_weights.classification, difficulty)),
+            ("path", _weight_at(family_weights.path, difficulty)),
+        ),
+        "morphism": (
+            ("relational", _weight_at(family_weights.relational, difficulty)),
+            ("target-only", _weight_at(family_weights.target_only, difficulty)),
+        ),
+    }
+    configured = {
+        "object": source.recipes.object,
+        "morphism": source.recipes.morphism,
+    }
+    subjects = FiniteDistribution.weighted(
+        (
+            ("object", _weight_at(source.subjects.object, difficulty)),
+            ("morphism", _weight_at(source.subjects.morphism, difficulty)),
+        )
+    )
+    return subjects.bind(
+        lambda subject: FiniteDistribution.weighted(families[subject]).bind(
+            lambda family: FiniteDistribution.weighted(configured[subject][family].items())
+        )
+    )
+
+
+def _weight_at(anchors: Anchors, difficulty: int) -> float:
+    return interpolate_anchors(tuple(anchors.items()), difficulty)
 
 
 def _surface_paths(value: SurfacePathsConfig) -> SurfacePathCondition:

@@ -117,6 +117,16 @@ class PolyhedralNet:
     corner_labels: tuple[tuple[FaceCorner, str], ...] = ()
     face_labels: tuple[tuple[int, str], ...] = ()
     corner_angle_labels: tuple[tuple[FaceCorner, str], ...] = ()
+    display_scale: float | None = field(
+        default=None,
+        validator=validators.optional(
+            number_range(
+                minimum_exclusive=0.0,
+                finite=True,
+                message="a display scale must be finite and positive",
+            )
+        ),
+    )
 
     def __attrs_post_init__(self) -> None:
         used: set[NetEdge] = set()

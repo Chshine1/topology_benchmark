@@ -12,7 +12,7 @@ from topology_benchmark.application.configuration import (
 )
 from topology_benchmark.core.probability.sampling import SamplingSession
 from topology_benchmark.core.problem.models import GenerationRequest
-from topology_benchmark.domains.surfaces.benchmark import SurfaceQuestionCatalog
+from topology_benchmark.domains.surfaces.abstractions import SurfaceProblemRecipeCatalog
 from topology_benchmark.domains.surfaces.generation.config import load_generation_config
 from topology_benchmark.domains.surfaces.generation.context.object import (
     SurfaceObjectGenerationContext,
@@ -31,7 +31,7 @@ from topology_benchmark.domains.surfaces.models import (
     SurfacePath,
     SurfacePresentation,
 )
-from topology_benchmark.domains.surfaces.questions.answers import integral_homology
+from topology_benchmark.domains.surfaces.recipes.homology import integral_homology
 from topology_benchmark.domains.surfaces.rendering.config import (
     SurfaceRenderingConfig,
     load_rendering_config,
@@ -49,8 +49,8 @@ from topology_benchmark.domains.surfaces.rendering.renderer import (
 from topology_benchmark.domains.surfaces.services import SurfaceAnalyzer
 
 
-def _question(question_id: str) -> Any:
-    return build_container().resolve(SurfaceQuestionCatalog)[question_id]
+def _recipe(recipe_id: str) -> Any:
+    return build_container().resolve(SurfaceProblemRecipeCatalog)[recipe_id]
 
 
 def test_generated_quotients_are_compact_surfaces_without_stored_invariants() -> None:
@@ -121,13 +121,13 @@ def test_morphism_invariants_are_computed_from_source_and_target() -> None:
         load_generation_config(SURFACE_GENERATION_DEFAULTS), analyzer
     )._glue_two_disks(random.Random(4), 3)
 
-    assert _question("euler-change")._answer(morphism) == 0
-    assert _question("boundary-change")._answer(morphism) == -2
-    assert _question("component-change")._answer(morphism) == -1
-    assert _question("map-injective")._answer(morphism) is False
-    assert _question("map-surjective")._answer(morphism) is True
-    assert _question("homology-isomorphism")._answer(morphism) is False
-    assert _question("target-homology")._answer(morphism) == "H_0=Z; H_1=0; H_2=Z"
+    assert _recipe("euler-change")._answer(morphism) == 0
+    assert _recipe("boundary-change")._answer(morphism) == -2
+    assert _recipe("component-change")._answer(morphism) == -1
+    assert _recipe("map-injective")._answer(morphism) is False
+    assert _recipe("map-surjective")._answer(morphism) is True
+    assert _recipe("homology-isomorphism")._answer(morphism) is False
+    assert _recipe("target-homology")._answer(morphism) == "H_0=Z; H_1=0; H_2=Z"
 
 
 def test_renderer_is_deterministic() -> None:
@@ -258,7 +258,7 @@ def test_benchmark_generates_registered_object_and_morphism_recipes() -> None:
         recipe_id="boundary-change",
     )
     assert len(morphism.sections) == 2
-    assert "first diagram is the source" in morphism.question
+    assert "first diagram is the source" in morphism.prompt
     assert catalog.generate(domain="surfaces", request=GenerationRequest(7, 8)) == catalog.generate(
         domain="surfaces", request=GenerationRequest(7, 8)
     )
@@ -274,9 +274,9 @@ def test_polygon_attachment_is_a_first_class_inclusion() -> None:
     assert len(morphism.target.polygons) == len(morphism.source.polygons) + 1
     assert analyzer.analyze(morphism.source).euler_characteristic == 1
     assert analyzer.analyze(morphism.target).euler_characteristic == 1
-    assert _question("map-injective")._answer(morphism) is True
-    assert _question("map-surjective")._answer(morphism) is False
-    assert _question("homology-isomorphism")._answer(morphism) is True
+    assert _recipe("map-injective")._answer(morphism) is True
+    assert _recipe("map-surjective")._answer(morphism) is False
+    assert _recipe("homology-isomorphism")._answer(morphism) is True
 
 
 def test_difficulty_is_validated() -> None:
@@ -322,7 +322,7 @@ def test_path_coordinates_use_tagged_edges_and_an_explicit_homology_basis() -> N
     )
     analyzer = SurfaceAnalyzer()
     assert analyzer.h1_edge_generators(torus) == (((1, 0), None), ((0, 1), None))
-    assert _question("path-representative")._answer(torus) == (1, 0)
+    assert _recipe("path-representative")._answer(torus) == (1, 0)
 
     problem = next(
         problem
@@ -331,11 +331,11 @@ def test_path_coordinates_use_tagged_edges_and_an_explicit_homology_basis() -> N
             problem := build_container()
             .resolve(BenchmarkCatalog)
             .generate(domain="surfaces", request=GenerationRequest(seed, 10))
-        ).question_id
+        ).recipe_id
         == "path-representative"
     )
     assert isinstance(problem.answer, tuple)
-    assert "ordered generators" in problem.question
+    assert "ordered generators" in problem.prompt
     assert "<!-- e1 -->" in problem.sections[0].content
     assert "c1" not in problem.sections[0].content
 

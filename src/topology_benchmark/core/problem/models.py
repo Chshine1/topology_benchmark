@@ -14,11 +14,11 @@ class QuestionSection:
 
 @dataclass(frozen=True, slots=True)
 class Problem[AnswerT]:
-    question: str
+    prompt: str
     sections: tuple[QuestionSection, ...]
     answer: AnswerT
     seed: int
-    question_id: str
+    recipe_id: str
 
 
 @frozen

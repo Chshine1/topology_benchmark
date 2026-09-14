@@ -7,28 +7,24 @@ from topology_benchmark.application.configuration import (
     SURFACE_GENERATION_DEFAULTS,
     SURFACE_RENDERING_DEFAULTS,
 )
-from topology_benchmark.domains.polyhedral_nets.benchmark import (
-    PolyhedralNetsBenchmark,
-    PolyhedralQuestionCatalog,
+from topology_benchmark.domains.polyhedral_nets.abstractions import (
+    PolyhedralProblemRecipeCatalog,
+    PolyhedralProblemRecipeDistribution,
 )
 from topology_benchmark.domains.polyhedral_nets.config import PolyhedralDomainConfig
-from topology_benchmark.domains.polyhedral_nets.question_distribution import (
-    PolyhedralQuestionDistribution,
-)
 from topology_benchmark.domains.polyhedral_nets.registration import add_polyhedral_nets_domain
-from topology_benchmark.domains.surfaces.benchmark import SurfaceBenchmark, SurfaceQuestionCatalog
+from topology_benchmark.domains.surfaces.abstractions import (
+    SurfaceProblemRecipeCatalog,
+    SurfaceProblemRecipeDistribution,
+)
 from topology_benchmark.domains.surfaces.generation.config import load_generation_config
-from topology_benchmark.domains.surfaces.question_distribution import SurfaceQuestionDistribution
 from topology_benchmark.domains.surfaces.registration import add_surface_domain
 from topology_benchmark.domains.surfaces.rendering.config import load_rendering_config
-from topology_benchmark.domains.torus_slices.benchmark import (
-    TorusQuestionCatalog,
-    TorusSlicesBenchmark,
+from topology_benchmark.domains.torus_slices.abstractions import (
+    TorusProblemRecipeCatalog,
+    TorusProblemRecipeDistribution,
 )
 from topology_benchmark.domains.torus_slices.config import TorusDomainConfig
-from topology_benchmark.domains.torus_slices.question_distribution import (
-    TorusQuestionDistribution,
-)
 from topology_benchmark.domains.torus_slices.registration import add_torus_slices_domain
 
 
@@ -48,21 +44,18 @@ def build_container(
         (
             BenchmarkRegistration(
                 "surfaces",
-                container.resolve(SurfaceBenchmark),
-                container.resolve(SurfaceQuestionCatalog),
-                container.resolve(SurfaceQuestionDistribution),
+                container.resolve(SurfaceProblemRecipeCatalog),
+                container.resolve(SurfaceProblemRecipeDistribution),
             ),
             BenchmarkRegistration(
                 "polyhedral-nets",
-                container.resolve(PolyhedralNetsBenchmark),
-                container.resolve(PolyhedralQuestionCatalog),
-                container.resolve(PolyhedralQuestionDistribution),
+                container.resolve(PolyhedralProblemRecipeCatalog),
+                container.resolve(PolyhedralProblemRecipeDistribution),
             ),
             BenchmarkRegistration(
                 "torus-slices",
-                container.resolve(TorusSlicesBenchmark),
-                container.resolve(TorusQuestionCatalog),
-                container.resolve(TorusQuestionDistribution),
+                container.resolve(TorusProblemRecipeCatalog),
+                container.resolve(TorusProblemRecipeDistribution),
             ),
         )
     )

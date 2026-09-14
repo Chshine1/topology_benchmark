@@ -10,6 +10,7 @@ from topology_benchmark.core.probability.distribution import (
 )
 from topology_benchmark.core.probability.interpolation import blended_weight
 from topology_benchmark.core.problem.models import GenerationRequest
+from topology_benchmark.domains.surfaces.abstractions import ISurfaceGenerator
 from topology_benchmark.domains.surfaces.generation.config import SurfaceGenerationConfig
 from topology_benchmark.domains.surfaces.generation.context.object import (
     DistinguishedSurfacePaths,
@@ -26,7 +27,6 @@ from topology_benchmark.domains.surfaces.models import (
     SurfacePath,
     SurfacePresentation,
 )
-from topology_benchmark.domains.surfaces.ports import ISurfaceGenerator
 from topology_benchmark.domains.surfaces.services import SurfaceAnalyzer
 
 

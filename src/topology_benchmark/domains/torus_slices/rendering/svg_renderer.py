@@ -8,6 +8,7 @@ from matplotlib.backends.backend_svg import FigureCanvasSVG
 from matplotlib.figure import Figure
 
 from topology_benchmark.core.problem.models import GenerationRequest, QuestionSection
+from topology_benchmark.domains.torus_slices.abstractions import ITorusSliceRepresentation
 from topology_benchmark.domains.torus_slices.models.torus import (
     TorusSliceObservation,
     Vector3,
@@ -16,7 +17,6 @@ from topology_benchmark.domains.torus_slices.models.torus import (
     dot,
     scale,
 )
-from topology_benchmark.domains.torus_slices.ports import ITorusSliceRepresentation
 
 
 class TorusSliceSvgRenderer(ITorusSliceRepresentation):

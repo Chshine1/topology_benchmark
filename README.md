@@ -2,7 +2,7 @@
 
 `topology_benchmark` is a reproducible visual-problem generator for evaluating geometric and
 topological reasoning. The framework separates mathematical objects, exact ground-truth analysis,
-question selection, and graphic representation so that a problem is solved from its supplied
+recipe selection, and graphic representation so that a problem is solved from its supplied
 question material rather than from hidden generator state.
 
 The built-in domains are **compact surfaces presented by polygon-edge gluings**, **polyhedral
@@ -13,10 +13,10 @@ questions as well as relational questions about links or pairs of unfoldings.
 seed + difficulty + profile
             |
             v
-  question distribution
+   recipe distribution
             |
             v
- registered question ---> object/morphism generator ---> exact analyzer
+ registered recipe ---> semantic law ---> object/morphism generator ---> exact analyzer
             |
             v
  certified answer + display planning ---> deterministic question sections
@@ -25,7 +25,7 @@ seed + difficulty + profile
 ## Current capabilities
 
 - Seeded, difficulty-controlled generation on a scale from 1 to 10.
-- Typed question distributions: select configured question objects before compatible instances are built.
+- Typed recipe distributions: select configured problem recipes before concrete instances are built.
 - Object problems with one or more visual observations.
 - Exact surface validation and invariant computation from combinatorial data.
 - Integral cellular homology, including torsion and path coordinates in explicit bases.
@@ -95,7 +95,7 @@ problem = catalog.generate_recipe(
     recipe_id="boundary-change",
 )
 
-print(problem.question)
+print(problem.prompt)
 print(problem.answer)
 print(problem.sections[0].media_type)  # image/svg+xml in the surface domain
 ```
@@ -104,11 +104,11 @@ A `Problem` contains:
 
 | Field | Meaning |
 | --- | --- |
-| `question` | Natural-language task shown to the answerer |
+| `prompt` | Natural-language task shown to the answerer |
 | `sections` | One or more `QuestionSection` values containing supplied question material |
 | `answer` | Exact computed ground truth (`int`, `bool`, `str`, or an integer tuple) |
 | `seed` | Seed needed to reproduce the instance |
-| `question_id` | Stable registered question ID used for dataset selection and result grouping |
+| `recipe_id` | Stable problem-recipe ID used for dataset selection and result grouping |
 
 `QuestionSection` contains a MIME `media_type` and its serialized `content`. The generic viewer
 knows how to display image, audio, and text sections; the current surface renderer
@@ -122,14 +122,14 @@ its `profile_version`.
 ### Registered recipe selection
 
 Pipeline YAML uses stable recipe IDs to control the generated dataset mixture. `BenchmarkCatalog`
-resolves each ID to its registered question object and a distribution concentrated on that object.
+resolves each ID to its registered `IProblemRecipe` object and a distribution concentrated on it.
 Calling `generate` uses the domain's configured difficulty-aware default distribution, while
 `generate_recipe` explicitly requests one recipe.
 
-Adding a question means implementing the domain question protocol/base class, declaring its typed
+Adding a problem recipe means implementing the domain recipe protocol or base class, declaring its typed
 configuration and collaborators, and registering the instance. It does not require editing a
-central question-building branch. Default difficulty-aware distributions are assembled in each
-domain registration boundary and resolved by `BenchmarkCatalog` before it calls a provider.
+central dispatch branch. Default difficulty-aware distributions are assembled in each domain
+registration boundary. Once selected, every recipe generates its concrete `Problem` directly.
 
 ## Polyhedral-net domain
 
@@ -263,8 +263,8 @@ linearly interpolated. The profile controls:
 - object-versus-morphism subject weights and conditional recipe weights;
 - polygon counts, side-count continuation, and gluing density;
 - path-length continuation and visual complexity budgets;
-- morphism-family weights and per-question affinities, converted at configuration load time into a
-  typed generation policy so the generator never dispatches on question IDs;
+- morphism-family weights and per-recipe affinities, converted at configuration load time into a
+  typed generation policy so the generator never dispatches on recipe IDs;
 - rare intentional noise and retry limits.
 
 Incidental paths occur at a low 7.5% noise rate. Path lengths follow a truncated geometric
@@ -279,7 +279,7 @@ generation:
   profile_version: "surface-v3"
   noise_probability: 0.05
   difficulty:
-    question_family_weights:
+    recipe_family_weights:
       path: {1: 0.10, 4: 0.20, 7: 0.35, 10: 0.50}
 ```
 
@@ -347,12 +347,11 @@ src/topology_benchmark/
 |   |-- generation/               shared object-generation contracts
 |   |-- presentation/             shared representation contracts
 |   |-- probability/              finite laws, sampling, and profile interpolation
-|   |-- problem/                  problem values, recipes, providers, and question distributions
+|   |-- problem/                  problem values, recipes, and recipe distributions
 |   `-- structures/               shared structural primitives such as disjoint sets
 |-- application/                  composition root, benchmark catalog, local HTTP demo
 |-- domains/surfaces/
-|   |-- benchmark.py              thin provider/orchestration shell
-|   |-- question_distribution.py  domain question distribution
+|   |-- abstractions.py           ports, answer type, recipe catalog and distribution
 |   |-- generation/
 |   |   |-- config.py             typed generation configuration and loader
 |   |   |-- context/              semantic conditions and contexts by subject
@@ -362,23 +361,22 @@ src/topology_benchmark/
 |   |       |-- object.py
 |   |       `-- morphism.py
 |   |-- models/                    immutable surface objects, morphisms, and facts
-|   |-- questions/                independently registered question implementations
+|   |-- recipes/                  object and morphism recipes plus homology formatting
 |   |-- rendering/                rendering config, diagram planning, and renderer
 |   |-- services/                 explicitly named services such as surface_analyzer.py
-|   |-- ports.py                  active generator and representation boundaries
 |   `-- registration.py           domain-owned container bindings
 |-- domains/polyhedral_nets/
-|   |-- benchmark.py, config.py, ports.py, question_distribution.py, registration.py
+|   |-- abstractions.py, config.py, registration.py
 |   |-- generation/               net realization and compatible-completion enumeration
 |   |-- models/                   immutable net and folding values
-|   |-- questions/                registered polyhedral question capabilities
+|   |-- recipes/                  base lifecycle and recipes grouped by net feature
 |   |-- rendering/                SVG net presentation
 |   `-- services/                 net, cell-graph, and observation analysis
 |-- domains/torus_slices/
-|   |-- benchmark.py, config.py, ports.py, question_distribution.py, registration.py
+|   |-- abstractions.py, config.py, registration.py
 |   |-- generation/               semantic generation context and realization
 |   |-- models/                   torus geometry and observations
-|   |-- questions/                registered slice question capabilities
+|   |-- recipes/                  base lifecycle plus count and linking recipes
 |   |-- rendering/                SVG slice presentation
 |   `-- services/                 torus-family analysis
 `-- pipeline/
@@ -390,20 +388,21 @@ src/topology_benchmark/
     `-- serialization/            shared JSON serialization primitives
 ```
 
-The core provides generic `QuestionCatalog`, `QuestionChoice`, and `QuestionDistribution` types and
-collects domain providers in an injected `BenchmarkCatalog`. Each domain defines the question
-protocol or base class appropriate to its lifecycle: surface and torus questions generate complete
-problems, while polyhedral questions build certified drafts from enumerated compatible foldings.
+The core uses `FiniteDistribution` for recipe selection, semantic generation laws, and pipeline
+scheduling. `BenchmarkCatalog` collects each domain's recipe catalog and default distribution. A
+domain's `IProblemRecipeDistribution` is a conditional law: `at(difficulty)` returns a finite
+distribution over its registered recipe objects. Every recipe implements `IProblemRecipe` and owns
+the complete lifecycle that produces a concrete `Problem`.
 Mathematical objects and the closed surface-morphism union remain immutable data rather than
-behavioral interfaces. Questions coordinate compatible generation, certification, wording, exact
+behavioral interfaces. Recipes coordinate compatible generation, certification, wording, exact
 answers, and rendering. Configuration selects only stable registered IDs and probabilities, never
-Python import paths or dependency graphs. A new domain registers its provider, questions, default
+Python import paths or dependency graphs. A new domain registers its recipes, default
 distribution, and collaborators at the composition root; renderers never receive hidden answers or
 answer-derived geometry.
 
 Surface object recipes carry configured finite laws over semantic outcomes such as component count,
 path count, path closure, and nontrivial homology. The surface generator realizes the selected outcome
-without inspecting a question ID or interpreting question-category flags. Because these laws are
+without inspecting a recipe ID or interpreting question-category flags. Because these laws are
 finite distributions, callers can compute their exact pushforwards, conditional probabilities, and
 expectations in addition to sampling presentations from them.
 Morphism recipes follow the same lifecycle: configuration resolves a difficulty-aware finite law
@@ -412,9 +411,11 @@ question-specific affinities or changing families on retry exhaustion.
 
 ## Dynamic evaluation pipeline
 
-The pipeline creates a new dataset at run time, optionally sends its public question sections to a model,
-and scores the returned answers. Copy `config/pipeline.example.yaml` and configure the run size, weighted
-domain mixture, internal generation levels, and optional `recipes` mixture. Generation levels
+The pipeline composes the configured domain, generation-level, and recipe distributions into one
+joint finite distribution before it creates a dataset. It then optionally sends public question
+sections to a model and scores the returned answers. Copy `config/pipeline.example.yaml` and
+configure the run size, weighted domain mixture, internal generation levels, and optional `recipes`
+mixture. Generation levels
 retain the existing generator controls but are deliberately absent from public examples and result
 tables: they are not presented as validated measurements of difficulty.
 
@@ -443,7 +444,7 @@ Each run has a content-derived identifier and writes a separate directory contai
 | --- | --- |
 | `dataset.public.jsonl` | IDs, domains, questions, and relative media paths |
 | `media/` | The SVG question sections sent to or published for answerers |
-| `ground_truth.private.jsonl` | Answers, question IDs, and generator seeds |
+| `ground_truth.private.jsonl` | Answers, recipe IDs, and generator seeds |
 | `manifest.private.json` | Resolved root seed, configuration, and realized mix |
 | `predictions.jsonl` | Raw responses, extracted answers, correctness, and API errors |
 | `summary.json` | Overall and per-question accuracy plus failed-request count |

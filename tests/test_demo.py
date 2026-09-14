@@ -28,7 +28,7 @@ def test_demo_serializes_any_problem_provider() -> None:
     payload = json.loads(demo.problem_json(request=GenerationRequest(12, 7)))
 
     assert payload["seed"] == 12
-    assert payload["question"]
+    assert payload["prompt"]
     assert payload["sections"]
     assert all(section["media_type"] == "image/svg+xml" for section in payload["sections"])
 
@@ -54,9 +54,9 @@ def test_demo_can_switch_between_registered_domains() -> None:
     net = json.loads(demo.problem_json(request=request, domain="polyhedral-nets"))
     tori = json.loads(demo.problem_json(request=request, domain="torus-slices"))
 
-    assert surface["question_id"]
-    assert net["question_id"]
-    assert tori["question_id"]
+    assert surface["recipe_id"]
+    assert net["recipe_id"]
+    assert tori["recipe_id"]
     assert "metadata" not in surface
     assert "metadata" not in net
     assert "metadata" not in tori

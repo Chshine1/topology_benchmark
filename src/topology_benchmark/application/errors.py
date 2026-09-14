@@ -15,11 +15,12 @@ class UnknownDomainError(BenchmarkApplicationError, LookupError):
         )
 
 
-class UnknownQuestionError(BenchmarkApplicationError, LookupError):
-    def __init__(self, domain: str, question: str, choices: tuple[str, ...]) -> None:
+class UnknownProblemRecipeError(BenchmarkApplicationError, LookupError):
+    def __init__(self, domain: str, recipe_id: str, choices: tuple[str, ...]) -> None:
         self.domain = domain
-        self.question = question
+        self.recipe_id = recipe_id
         self.choices = choices
         super().__init__(
-            f"unknown question {question!r} for {domain}; choose one of: {', '.join(choices)}"
+            f"unknown problem recipe {recipe_id!r} for {domain}; "
+            f"choose one of: {', '.join(choices)}"
         )

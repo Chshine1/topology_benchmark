@@ -11,6 +11,8 @@ from topology_benchmark.pipeline.config import PipelineConfig
 from topology_benchmark.pipeline.dataset.models import GeneratedBenchmarkRun, GeneratedItem
 from topology_benchmark.pipeline.serialization.json_writer import write_json, write_jsonl
 
+DATASET_SCHEMA_VERSION = 2
+
 
 class DatasetArtifactWriter:
     def write(
@@ -66,7 +68,7 @@ class DatasetArtifactWriter:
                 {
                     "id": item.item_id,
                     "domain": item.domain,
-                    "question": item.problem.question,
+                    "question": item.problem.prompt,
                     "media": media,
                 }
             )
@@ -75,7 +77,7 @@ class DatasetArtifactWriter:
                     "id": item.item_id,
                     "answer": item.problem.answer,
                     "generator_seed": item.problem.seed,
-                    "question_id": item.problem.question_id,
+                    "recipe_id": item.problem.recipe_id,
                 }
             )
         write_jsonl(run_directory / "dataset.public.jsonl", public_records)
@@ -88,16 +90,16 @@ def _manifest(
     run_id: str,
     items: tuple[GeneratedItem, ...],
 ) -> dict[str, Any]:
-    combinations = Counter((item.domain, item.problem.question_id) for item in items)
+    combinations = Counter((item.domain, item.problem.recipe_id) for item in items)
     return {
-        "schema_version": 1,
+        "schema_version": DATASET_SCHEMA_VERSION,
         "run_id": run_id,
         "created_at": datetime.now(UTC).isoformat(),
         "root_seed": root_seed,
         "size": len(items),
         "realized_distribution": {
-            f"{domain}/{question_id}": count
-            for (domain, question_id), count in sorted(combinations.items())
+            f"{domain}/{recipe_id}": count
+            for (domain, recipe_id), count in sorted(combinations.items())
         },
         "resolved_config": _manifest_config(config),
     }
@@ -107,7 +109,9 @@ def _run_id(config: PipelineConfig, root_seed: int) -> str:
     run_configuration = _manifest_config(config)
     run_configuration["output_dir"] = "<excluded>"
     serialized = json.dumps(run_configuration, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(f"run:{root_seed}:{serialized}".encode()).hexdigest()[:16]
+    return hashlib.sha256(
+        f"run:v{DATASET_SCHEMA_VERSION}:{root_seed}:{serialized}".encode()
+    ).hexdigest()[:16]
 
 
 def _manifest_config(config: PipelineConfig) -> dict[str, Any]:

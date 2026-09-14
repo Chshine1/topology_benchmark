@@ -5,6 +5,7 @@ from typing import override
 
 from topology_benchmark.core.errors import GenerationExhaustedError
 from topology_benchmark.core.problem.models import GenerationRequest
+from topology_benchmark.domains.polyhedral_nets.abstractions import IPolyhedralNetGenerator
 from topology_benchmark.domains.polyhedral_nets.models.net import (
     EdgePair,
     NetEdge,
@@ -15,7 +16,6 @@ from topology_benchmark.domains.polyhedral_nets.models.net import (
     PolyhedralNet,
     Polyhedron3D,
 )
-from topology_benchmark.domains.polyhedral_nets.ports import IPolyhedralNetGenerator
 
 
 def _sub(first: Point3, second: Point3) -> Point3:

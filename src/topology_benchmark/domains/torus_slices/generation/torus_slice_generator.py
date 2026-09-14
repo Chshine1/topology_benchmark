@@ -3,6 +3,7 @@ from random import Random
 from typing import override
 
 from topology_benchmark.core.errors import GenerationExhaustedError
+from topology_benchmark.domains.torus_slices.abstractions import ITorusSliceGenerator
 from topology_benchmark.domains.torus_slices.generation.context import (
     ChainLinkedTorusFamily,
     CompletelyLinkedTorusFamily,
@@ -23,7 +24,6 @@ from topology_benchmark.domains.torus_slices.models.torus import (
     subtract,
     unit,
 )
-from topology_benchmark.domains.torus_slices.ports import ITorusSliceGenerator
 from topology_benchmark.domains.torus_slices.services.torus_family_analyzer import (
     TorusFamilyAnalyzer,
 )
