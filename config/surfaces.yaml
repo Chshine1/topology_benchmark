@@ -1,5 +1,5 @@
 generation:
-  profile_version: "surface-v7"
+  profile_version: "surface-v9"
   noise_probability: 0.075
   retry_limit: 250
   morphism_retry_limit: 40
@@ -106,37 +106,183 @@ rendering:
       edge_step: 22
       interior_step: 64
 
-  stroke:
-    polygon_width: 1.8
-    path_width: 1.45
-    vertex_size: 9
-    dotted_pattern: [1, 2.6]
+  styles:
+    - id: classic
+      backend: matplotlib-svg
+      weight: 1.0
+      canvas_color: "#ffffff"
+      palettes:
+        - fill: "#f8f5ed"
+          ink: "#263238"
+          path_colors: ["#007c91", "#d97706", "#7e22ce"]
+        - fill: "#e8f4f8"
+          ink: "#164e63"
+          path_colors: ["#be123c", "#00796b", "#6a1b9a"]
+        - fill: "#fff1e6"
+          ink: "#5d4037"
+          path_colors: ["#1565c0", "#c62828", "#00838f"]
+      stroke:
+        polygon_width: 1.8
+        path_width: 1.45
+        vertex_size: 9
+        dotted_pattern: [1, 2.6]
+        sketch: null
+        glow_layers: []
+      arrows: &standard_arrows
+        gluing_size: 18
+        path_size: 13
+        path_count_limit: 4
+        spread_start: 0.22
+        spread_end: 0.78
+        tangent_span: 0.045
+      labels: &sans_labels
+        polygon_size: 13
+        gluing_size: 10
+        path_size: 11
+        order_size: 9
+        tag_offset: 20
+        tag_clearance: 24
+        gluing_offset: 19
+        path_offset: 11
+        font_family: "DejaVu Sans"
+      grid: null
 
-  arrows:
-    gluing_size: 18
-    path_size: 13
-    path_count_limit: 4
-    spread_start: 0.22
-    spread_end: 0.78
-    tangent_span: 0.045
+    - id: hand-drawn
+      backend: matplotlib-svg
+      weight: 1.0
+      canvas_color: "#f3ead3"
+      palettes:
+        - fill: "#efe2bd"
+          ink: "#302b27"
+          path_colors: ["#315d73", "#a44a3f", "#6b5b2a"]
+        - fill: "#e9d8ad"
+          ink: "#40352c"
+          path_colors: ["#365f46", "#9b4b32", "#57447a"]
+      stroke:
+        polygon_width: 2.2
+        path_width: 1.65
+        vertex_size: 13
+        dotted_pattern: [0.8, 3.2]
+        sketch: {scale: 1.2, length: 72, randomness: 2.4}
+        glow_layers: []
+      arrows: *standard_arrows
+      labels: *sans_labels
+      grid:
+        spacing: 24
+        color: "#8f7d5f"
+        width: 0.35
+        alpha: 0.08
+        major_every: 4
 
-  labels:
-    polygon_size: 13
-    gluing_size: 10
-    path_size: 11
-    order_size: 9
-    tag_offset: 20
-    tag_clearance: 24
-    gluing_offset: 19
-    path_offset: 11
+    - id: blueprint
+      backend: matplotlib-svg
+      weight: 1.0
+      canvas_color: "#073763"
+      palettes:
+        - fill: "#0b4a79"
+          ink: "#d8f3ff"
+          path_colors: ["#67e8f9", "#fef08a", "#f0abfc"]
+        - fill: "#103f68"
+          ink: "#effaff"
+          path_colors: ["#93c5fd", "#fcd34d", "#f9a8d4"]
+      stroke:
+        polygon_width: 1.6
+        path_width: 1.25
+        vertex_size: 8
+        dotted_pattern: [0.7, 2.2]
+        sketch: null
+        glow_layers: []
+      arrows: *standard_arrows
+      labels:
+        polygon_size: 13
+        gluing_size: 10
+        path_size: 11
+        order_size: 9
+        tag_offset: 20
+        tag_clearance: 24
+        gluing_offset: 19
+        path_offset: 11
+        font_family: "DejaVu Sans Mono"
+      grid:
+        spacing: 18
+        color: "#9edcff"
+        width: 0.4
+        alpha: 0.16
+        major_every: 5
 
-  palettes:
-    - fill: "#f8f5ed"
-      ink: "#263238"
-      path_colors: ["#007c91", "#d97706", "#7e22ce"]
-    - fill: "#e8f4f8"
-      ink: "#164e63"
-      path_colors: ["#be123c", "#00796b", "#6a1b9a"]
-    - fill: "#fff1e6"
-      ink: "#5d4037"
-      path_colors: ["#1565c0", "#c62828", "#00838f"]
+    - id: neon
+      backend: matplotlib-svg
+      weight: 0.75
+      canvas_color: "#090611"
+      palettes:
+        - fill: "#151126"
+          ink: "#72f1ff"
+          path_colors: ["#ff4fd8", "#77ff66", "#ffd166"]
+        - fill: "#10192b"
+          ink: "#c4f5ff"
+          path_colors: ["#00f5d4", "#f15bb5", "#fee440"]
+      stroke:
+        polygon_width: 1.7
+        path_width: 1.35
+        vertex_size: 10
+        dotted_pattern: [0.8, 2.4]
+        sketch: null
+        glow_layers:
+          - {width_factor: 6.0, alpha: 0.08}
+          - {width_factor: 3.0, alpha: 0.16}
+      arrows: *standard_arrows
+      labels: *sans_labels
+      grid: null
+
+    - id: pencil-study
+      backend: blender
+      blender_version: "5.2"
+      weight: 0.0
+      canvas_color: "#eee4ca"
+      palettes:
+        - fill: "#e5d8b8"
+          ink: "#292621"
+          path_colors: ["#31546a", "#87453c", "#53653c"]
+      stroke:
+        polygon_width: 2.0
+        path_width: 1.45
+        vertex_size: 10
+        dotted_pattern: [1.0, 2.8]
+        bevel_depth: 0.012
+      arrows: *standard_arrows
+      labels: *sans_labels
+      freestyle:
+        thickness: 1.25
+        rounds: 3
+        spatial_noise_amplitude: 2.0
+        spatial_noise_scale: 18.0
+      paper: {scale: 7.0, detail: 5.0, strength: 0.12}
+      hatching: null
+      curve_displacement: {amplitude: 0.018, scale: 5.0, samples: 48}
+
+    - id: ink-crosshatch
+      backend: blender
+      blender_version: "5.2"
+      weight: 0.0
+      canvas_color: "#f4edda"
+      palettes:
+        - fill: "#e9ddbf"
+          ink: "#201f1b"
+          path_colors: ["#8b2635", "#1f5f61", "#725a24"]
+      stroke:
+        polygon_width: 1.8
+        path_width: 1.35
+        vertex_size: 9
+        dotted_pattern: [0.8, 2.4]
+        bevel_depth: 0.010
+      arrows: *standard_arrows
+      labels: *sans_labels
+      freestyle: null
+      paper: {scale: 9.0, detail: 3.0, strength: 0.08}
+      hatching:
+        scale: 12.0
+        width: 0.14
+        angle_degrees: 24.0
+        cross_angle_degrees: 112.0
+        strength: 0.62
+      curve_displacement: {amplitude: 0.003, scale: 8.0, samples: 48}

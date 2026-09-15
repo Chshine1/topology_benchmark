@@ -27,6 +27,6 @@ def dataset_content_id(
             path = (root / relative).resolve()
             if not path.is_relative_to(root.resolve()):
                 raise ValueError(f"media path escapes the dataset directory: {relative}")
-            item_media.append((media_type, relative.as_posix(), path.read_text(encoding="utf-8")))
+            item_media.append((media_type, relative.as_posix(), path.read_bytes().hex()))
         media_content.append((item_id, tuple(item_media)))
     return canonical_hash((public_records, private_records, tuple(media_content)))

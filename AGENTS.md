@@ -104,11 +104,22 @@
 - Model adapters must handle each supported question-section media type explicitly and reject
   unsupported types before making an external request. Do not silently encode every section as the
   provider's dominant media type.
+- Carry binary question media such as PNG as validated base64 at in-memory and JSON boundaries, but
+  decode it to real binary files in dataset artifacts. Hash artifact bytes rather than decoded text,
+  and remove nondeterministic renderer metadata before deriving persisted content identity.
 - Keep concrete representation method signatures aligned with their shared representation
   protocol. Put domain-specific display annotations on the immutable observed value passed to the
   renderer instead of widening `render` with optional keyword parameters.
 - Keep response extraction and answer-equivalence policy behind an injected scoring boundary.
   Pipeline orchestration must not grow a central type switch whenever a domain adds an answer form.
+- Keep semantic presentation planning, visual-style selection, and backend serialization separate.
+  Model style prevalence as a finite distribution over complete typed profiles, and implement
+  reusable visual effects as backend primitives rather than branching on style IDs. Treat a 3D
+  realization as an explicit representation policy; do not infer one from combinatorial data merely
+  to decorate it with a Blender backend.
+- Run automatic Matplotlib label adjustment only after every artist is present. Represent curved or
+  nonrectangular collision geometry with sampled points rather than whole-artist bounding boxes,
+  which forbid large areas that contain no visible stroke.
 - Make scoring exhaustive over the supported answer-value union. Parse structured answers into
   canonical values, compare semantic forms rather than presentation syntax, and reject unsupported
   answer types instead of silently converting them to strings.

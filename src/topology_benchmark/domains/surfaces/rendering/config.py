@@ -1,4 +1,4 @@
-from typing import Annotated, Self
+from typing import Annotated, Literal, Self
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, model_validator
 
@@ -11,12 +11,7 @@ type YamlTuple[T] = Annotated[tuple[T, ...], BeforeValidator(_yaml_tuple)]
 
 
 class _StrictConfigModel(BaseModel):
-    model_config = ConfigDict(
-        frozen=True,
-        strict=True,
-        extra="forbid",
-        allow_inf_nan=False,
-    )
+    model_config = ConfigDict(frozen=True, strict=True, extra="forbid", allow_inf_nan=False)
 
 
 class CanvasConfig(_StrictConfigModel):
@@ -39,18 +34,41 @@ class GeometryConfig(_StrictConfigModel):
     curvature: CurvatureConfig
 
 
-class StrokeConfig(_StrictConfigModel):
+class SketchConfig(_StrictConfigModel):
+    scale: float = Field(gt=0)
+    length: float = Field(gt=0)
+    randomness: float = Field(gt=0)
+
+
+class GlowLayerConfig(_StrictConfigModel):
+    width_factor: float = Field(gt=1)
+    alpha: float = Field(gt=0, le=1)
+
+
+class _CommonStrokeConfig(_StrictConfigModel):
     polygon_width: float = Field(gt=0)
     path_width: float = Field(gt=0)
     vertex_size: float = Field(gt=0)
     dotted_pattern: YamlTuple[Annotated[float, Field(gt=0)]]
 
     @model_validator(mode="after")
-    def _path_not_wider_than_polygon(self) -> Self:
+    def _validate_common_strokes(self) -> Self:
         if self.path_width > self.polygon_width:
-            raise ValueError("rendering.stroke.path_width must not exceed polygon_width")
+            raise ValueError("a visual style's path_width must not exceed polygon_width")
         if not self.dotted_pattern:
-            raise ValueError("rendering.stroke.dotted_pattern must not be empty")
+            raise ValueError("a visual style's dotted_pattern must not be empty")
+        return self
+
+
+class StrokeConfig(_CommonStrokeConfig):
+    sketch: SketchConfig | None
+    glow_layers: YamlTuple[GlowLayerConfig]
+
+    @model_validator(mode="after")
+    def _validate_glow_layers(self) -> Self:
+        widths = tuple(layer.width_factor for layer in self.glow_layers)
+        if tuple(sorted(widths, reverse=True)) != widths:
+            raise ValueError("glow layers must be ordered from widest to narrowest")
         return self
 
 
@@ -65,7 +83,7 @@ class ArrowConfig(_StrictConfigModel):
     @model_validator(mode="after")
     def _spread_is_ordered(self) -> Self:
         if self.spread_start > self.spread_end:
-            raise ValueError("rendering.arrows spread_start must not exceed spread_end")
+            raise ValueError("visual style arrow spread_start must not exceed spread_end")
         return self
 
 
@@ -78,6 +96,7 @@ class LabelConfig(_StrictConfigModel):
     tag_clearance: float = Field(gt=0)
     gluing_offset: float = Field(gt=0)
     path_offset: float = Field(gt=0)
+    font_family: str = Field(min_length=1)
 
 
 class PaletteConfig(_StrictConfigModel):
@@ -92,16 +111,94 @@ class PaletteConfig(_StrictConfigModel):
         return self
 
 
-class SurfaceRenderingConfig(_StrictConfigModel):
-    canvas: CanvasConfig
-    geometry: GeometryConfig
-    stroke: StrokeConfig
+class GridConfig(_StrictConfigModel):
+    spacing: float = Field(gt=0)
+    color: str = Field(min_length=1)
+    width: float = Field(gt=0)
+    alpha: float = Field(gt=0, le=1)
+    major_every: int = Field(ge=1)
+
+
+class _SurfaceVisualStyleConfig(_StrictConfigModel):
+    id: str = Field(pattern=r"^[a-z][a-z0-9-]*$")
+    weight: float = Field(ge=0)
+    canvas_color: str = Field(min_length=1)
+    palettes: YamlTuple[PaletteConfig]
     arrows: ArrowConfig
     labels: LabelConfig
-    palettes: YamlTuple[PaletteConfig]
 
     @model_validator(mode="after")
     def _has_palettes(self) -> Self:
         if not self.palettes:
-            raise ValueError("rendering.palettes must not be empty")
+            raise ValueError("each visual style needs at least one palette")
+        return self
+
+
+class MatplotlibVisualStyleConfig(_SurfaceVisualStyleConfig):
+    backend: Literal["matplotlib-svg"]
+    stroke: StrokeConfig
+    grid: GridConfig | None
+
+
+class BlenderStrokeConfig(_CommonStrokeConfig):
+    bevel_depth: float = Field(gt=0)
+
+
+class FreestyleConfig(_StrictConfigModel):
+    thickness: float = Field(gt=0)
+    rounds: int = Field(ge=1)
+    spatial_noise_amplitude: float = Field(ge=0)
+    spatial_noise_scale: float = Field(gt=0)
+
+
+class PaperTextureConfig(_StrictConfigModel):
+    scale: float = Field(gt=0)
+    detail: float = Field(ge=0)
+    strength: float = Field(ge=0, le=1)
+
+
+class HatchingConfig(_StrictConfigModel):
+    scale: float = Field(gt=0)
+    width: float = Field(gt=0, lt=0.5)
+    angle_degrees: float
+    cross_angle_degrees: float
+    strength: float = Field(gt=0, le=1)
+
+
+class CurveDisplacementConfig(_StrictConfigModel):
+    amplitude: float = Field(ge=0)
+    scale: float = Field(gt=0)
+    samples: int = Field(ge=2)
+
+
+class BlenderVisualStyleConfig(_SurfaceVisualStyleConfig):
+    backend: Literal["blender"]
+    blender_version: str = Field(pattern=r"^[0-9]+\.[0-9]+$")
+    stroke: BlenderStrokeConfig
+    freestyle: FreestyleConfig | None
+    paper: PaperTextureConfig
+    hatching: HatchingConfig | None
+    curve_displacement: CurveDisplacementConfig | None
+
+
+type SurfaceVisualStyleConfig = Annotated[
+    MatplotlibVisualStyleConfig | BlenderVisualStyleConfig,
+    Field(discriminator="backend"),
+]
+
+
+class SurfaceRenderingConfig(_StrictConfigModel):
+    canvas: CanvasConfig
+    geometry: GeometryConfig
+    styles: YamlTuple[SurfaceVisualStyleConfig]
+
+    @model_validator(mode="after")
+    def _has_unique_styles(self) -> Self:
+        if not self.styles:
+            raise ValueError("rendering.styles must not be empty")
+        if not any(style.weight > 0 for style in self.styles):
+            raise ValueError("rendering.styles needs at least one positive weight")
+        ids = tuple(style.id for style in self.styles)
+        if len(set(ids)) != len(ids):
+            raise ValueError("rendering style IDs must be unique")
         return self

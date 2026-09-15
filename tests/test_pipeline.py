@@ -1,3 +1,4 @@
+import base64
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -9,7 +10,7 @@ import yaml
 from topology_benchmark.application.bootstrap import build_container
 from topology_benchmark.application.configuration import SURFACE_DOMAIN_CONFIG
 from topology_benchmark.application.errors import UnknownDomainError, UnknownProblemRecipeError
-from topology_benchmark.core.problem.models import QuestionSection
+from topology_benchmark.core.problem.models import Problem, QuestionSection
 from topology_benchmark.pipeline import (
     BenchmarkDatasetGenerator,
     DatasetConfig,
@@ -21,6 +22,7 @@ from topology_benchmark.pipeline import (
 from topology_benchmark.pipeline.config import WeightedConfig
 from topology_benchmark.pipeline.dataset.artifact_reader import DatasetArtifactReader
 from topology_benchmark.pipeline.dataset.artifact_writer import DatasetArtifactWriter
+from topology_benchmark.pipeline.dataset.models import GeneratedItem
 from topology_benchmark.pipeline.dataset.planner import DatasetPlanner
 from topology_benchmark.pipeline.evaluation import model_provider as model_provider_module
 from topology_benchmark.pipeline.evaluation.answer_scorer import AnswerScorer
@@ -151,6 +153,37 @@ generation:
     assert manifest["dataset_id"] == output.name
     assert len(manifest["specification"]["domain_fingerprints"]) == 1
     assert DatasetArtifactReader().read(output).items == first
+
+
+def test_png_sections_are_persisted_as_binary_and_restored_as_base64(tmp_path: Path) -> None:
+    config = DatasetConfig(
+        size=1,
+        output_dir=tmp_path,
+        seed=4,
+        domains={"surfaces": _weighted_config()},
+    )
+    container = build_container()
+    add_dataset_generation(container, config)
+    plan = container.resolve(DatasetPlanner).create()
+    png = b"\x89PNG\r\n\x1a\nsynthetic-test-data"
+    encoded = base64.b64encode(png).decode("ascii")
+    item = GeneratedItem(
+        "item-1",
+        "surfaces",
+        Problem(
+            prompt="question",
+            sections=(QuestionSection("image/png", encoded),),
+            answer=0,
+            seed=4,
+            recipe_id="euler-characteristic",
+        ),
+    )
+
+    generated = DatasetArtifactWriter().write(plan, (item,))
+    media_path = next((generated.directory / "media").iterdir())
+
+    assert media_path.read_bytes() == png
+    assert DatasetArtifactReader().read(generated.directory).items == (item,)
 
 
 def test_pipeline_exposes_the_composed_generation_distribution(tmp_path: Path) -> None:
@@ -379,6 +412,7 @@ def test_model_provider_dispatches_text_and_image_sections(monkeypatch: pytest.M
             (
                 QuestionSection("text/plain", "context"),
                 QuestionSection("image/svg+xml", "<svg/>"),
+                QuestionSection("image/png", "iVBORw0KGgo="),
             ),
         )
         == "ok"
@@ -386,7 +420,10 @@ def test_model_provider_dispatches_text_and_image_sections(monkeypatch: pytest.M
     body = cast(dict[str, object], captured["body"])
     messages = cast(list[dict[str, object]], body["messages"])
     message = cast(list[dict[str, object]], messages[0]["content"])
-    assert [part["type"] for part in message] == ["text", "text", "image_url"]
+    assert [part["type"] for part in message] == ["text", "text", "image_url", "image_url"]
+    assert cast(dict[str, object], message[-1]["image_url"])["url"] == (
+        "data:image/png;base64,iVBORw0KGgo="
+    )
     assert captured["timeout"] == 60.0
 
     with pytest.raises(ValueError, match="does not support"):

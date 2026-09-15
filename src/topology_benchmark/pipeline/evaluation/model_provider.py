@@ -42,12 +42,24 @@ class OpenAICompatibleModelProvider(IModelProvider):
             if section.media_type == "text/plain":
                 content.append({"type": "text", "text": section.content})
                 continue
-            if section.media_type.startswith("image/"):
+            if section.media_type == "image/svg+xml":
                 encoded = base64.b64encode(section.content.encode()).decode()
                 content.append(
                     {
                         "type": "image_url",
                         "image_url": {"url": f"data:{section.media_type};base64,{encoded}"},
+                    }
+                )
+                continue
+            if section.media_type == "image/png":
+                try:
+                    base64.b64decode(section.content, validate=True)
+                except ValueError as error:
+                    raise ValueError("an image/png section must contain base64 data") from error
+                content.append(
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:{section.media_type};base64,{section.content}"},
                     }
                 )
                 continue

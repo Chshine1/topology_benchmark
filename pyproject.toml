@@ -1,6 +1,6 @@
 [project]
 authors = [{name = "Chshine1", email = "chshine@qq.com"}]
-dependencies = ["lagom>=2.7.7,<3", "matplotlib>=3.11.1,<4", "pyyaml>=6.0.2,<7", "attrs>=26.1.0,<27", "pydantic>=2.13.0,<3"]
+dependencies = ["adjustText>=1.4.0,<2", "lagom>=2.7.7,<3", "matplotlib>=3.11.1,<4", "pyyaml>=6.0.2,<7", "attrs>=26.1.0,<27", "pydantic>=2.13.0,<3"]
 name = "topology_benchmark"
 requires-python = ">= 3.14"
 version = "0.1.0"
@@ -45,7 +45,11 @@ matplotlib = ">=3.11.1,<4"
 
 [tool.pyrefly]
 project-includes = ["src", "tests"]
-project-excludes = ["**/__pycache__", ".pixi"]
+project-excludes = [
+    "**/__pycache__",
+    ".pixi",
+    "src/topology_benchmark/domains/surfaces/rendering/backend/blender_scene.py",
+]
 python-version = "3.14"
 python-interpreter-path = ".pixi/envs/dev/python.exe"
 

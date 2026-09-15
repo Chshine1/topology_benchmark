@@ -92,6 +92,24 @@ def test_rendering_yaml_is_strict(tmp_path: Path) -> None:
         load_surface_domain_config(override)
 
 
+def test_visual_style_ids_are_unique_and_profiles_are_complete(tmp_path: Path) -> None:
+    document = yaml.safe_load(SURFACE_DOMAIN_CONFIG.read_text(encoding="utf-8"))
+    document["rendering"]["styles"][1]["id"] = document["rendering"]["styles"][0]["id"]
+    override = tmp_path / "surfaces.yaml"
+    override.write_text(cast(str, yaml.safe_dump(document)), encoding="utf-8")
+
+    with pytest.raises(ValidationError, match="style IDs must be unique"):
+        load_surface_domain_config(override)
+
+    document["rendering"]["styles"][1]["id"] = "hand-drawn"
+    del document["rendering"]["styles"][1]["stroke"]["sketch"]
+    incomplete = tmp_path / "incomplete-surfaces.yaml"
+    incomplete.write_text(cast(str, yaml.safe_dump(document)), encoding="utf-8")
+
+    with pytest.raises(ValidationError, match="sketch"):
+        load_surface_domain_config(incomplete)
+
+
 def test_domain_yaml_requires_every_section(tmp_path: Path) -> None:
     incomplete = tmp_path / "surfaces.yaml"
     incomplete.write_text("rendering: {}\n", encoding="utf-8")

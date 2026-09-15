@@ -1,3 +1,4 @@
+import base64
 import shutil
 import tempfile
 from collections import Counter
@@ -61,7 +62,7 @@ class DatasetArtifactWriter:
                 path = (
                     media_directory / f"{item.item_id}-{index}{_media_suffix(section.media_type)}"
                 )
-                path.write_text(section.content, encoding="utf-8")
+                _write_media(path, section.media_type, section.content)
                 media.append(
                     {
                         "media_type": section.media_type,
@@ -112,3 +113,17 @@ def _media_suffix(media_type: str) -> str:
     return {"image/svg+xml": ".svg", "image/png": ".png", "text/plain": ".txt"}.get(
         media_type, ".bin"
     )
+
+
+def _write_media(path: Path, media_type: str, content: str) -> None:
+    if media_type == "image/png":
+        try:
+            binary = base64.b64decode(content, validate=True)
+        except ValueError as error:
+            raise ValueError("an image/png section must contain base64 data") from error
+        path.write_bytes(binary)
+        return
+    if media_type in {"image/svg+xml", "text/plain"}:
+        path.write_text(content, encoding="utf-8")
+        return
+    raise ValueError(f"unsupported dataset media type: {media_type!r}")

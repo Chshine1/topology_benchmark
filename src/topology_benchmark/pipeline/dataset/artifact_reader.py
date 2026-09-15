@@ -1,3 +1,4 @@
+import base64
 import json
 from pathlib import Path
 from typing import Any
@@ -74,7 +75,11 @@ def _load_section(root: Path, record: object) -> QuestionSection:
     path = (root / relative).resolve()
     if not path.is_relative_to(root):
         raise ValueError(f"media path escapes the dataset directory: {relative}")
-    return QuestionSection(media_type, path.read_text(encoding="utf-8"))
+    if media_type == "image/png":
+        return QuestionSection(media_type, base64.b64encode(path.read_bytes()).decode("ascii"))
+    if media_type in {"image/svg+xml", "text/plain"}:
+        return QuestionSection(media_type, path.read_text(encoding="utf-8"))
+    raise ValueError(f"unsupported dataset media type: {media_type!r}")
 
 
 def _read_json(path: Path) -> dict[str, Any]:
