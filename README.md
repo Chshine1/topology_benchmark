@@ -257,7 +257,7 @@ those generators, with torsion coordinates canonically reduced.
 
 ## Generation profiles
 
-Defaults live in `config/surfaces/generation.yaml`. Values specified at difficulty anchors are
+The surface profile lives under `generation` in `config/surfaces.yaml`. Values specified at difficulty anchors are
 linearly interpolated. The profile controls:
 
 - object-versus-morphism subject weights and conditional recipe weights;
@@ -271,8 +271,9 @@ Incidental paths occur at a low 7.5% noise rate. Path lengths follow a truncated
 distribution. Current display-safety caps are four polygons, eight sides per polygon, and seven
 query-path segments; path-coordinate diagrams tag at most eight quotient edges.
 
-An override YAML is recursively layered over the defaults, so it only needs to contain changed
-values:
+Every domain is loaded from one complete YAML document. Copy `config/surfaces.yaml` before changing
+the surface generation profile or rendering settings; missing fields and unknown fields are rejected
+at startup rather than filled from runtime defaults:
 
 ```yaml
 generation:
@@ -286,12 +287,12 @@ generation:
 Use it from Python or the CLI:
 
 ```python
-container = build_container(generation_config="my-generation-overrides.yaml")
+container = build_container(surface_config="my-surfaces.yaml")
 ```
 
 ```powershell
 pixi run -e dev python -m topology_benchmark `
-  --generation-config my-generation-overrides.yaml --seed 42 --difficulty 8
+  --surface-config my-surfaces.yaml --seed 42 --difficulty 8
 ```
 
 ## SVG representation
@@ -315,9 +316,9 @@ The notation is designed to preserve the information needed to solve a problem:
   misleading interior circle.
 - Thin, colored paths use numbered tags or repeated arrowheads to encode segment order.
 
-Rendering defaults live in `config/surfaces/rendering.yaml`, grouped under
-`canvas`, `geometry`, `stroke`, `arrows`, `labels`, and `palettes`. Overrides are recursively merged
-and validated:
+Rendering settings live under `rendering` in `config/surfaces.yaml`, grouped into `canvas`,
+`geometry`, `stroke`, `arrows`, `labels`, and `palettes`. The complete document is validated as one
+surface-domain configuration:
 
 ```yaml
 rendering:
@@ -330,17 +331,18 @@ rendering:
 ```
 
 ```python
-container = build_container(rendering_config="my-rendering-overrides.yaml")
+container = build_container(surface_config="my-surfaces.yaml")
 ```
 
 ## Architecture and extension points
 
 ```text
 config/
-|-- pipeline.example.yaml         example dynamic-evaluation run
-`-- surfaces/
-    |-- generation.yaml           default probabilistic profile
-    `-- rendering.yaml            default visual profile
+|-- dataset.example.yaml          example dataset-generation plan
+|-- evaluation.example.yaml       example model-evaluation plan
+|-- surfaces.yaml                 surface generation and rendering
+|-- polyhedral-nets.yaml          polyhedral generation and recipe law
+`-- torus-slices.yaml             torus generation and recipe law
 src/topology_benchmark/
 |-- core/
 |   |-- errors.py, validation.py  repository-wide errors and attrs validators
@@ -352,8 +354,9 @@ src/topology_benchmark/
 |-- application/                  composition root, benchmark catalog, local HTTP demo
 |-- domains/surfaces/
 |   |-- abstractions.py           ports, answer type, recipe catalog and distribution
+|   |-- config.py                 complete surface-domain configuration loader
 |   |-- generation/
-|   |   |-- config.py             typed generation configuration and loader
+|   |   |-- config.py             typed generation configuration
 |   |   |-- context/              semantic conditions and contexts by subject
 |   |   |   |-- object.py
 |   |   |   `-- morphism.py
@@ -412,16 +415,16 @@ question-specific affinities or changing families on retry exhaustion.
 ## Dynamic evaluation pipeline
 
 The pipeline composes the configured domain, generation-level, and recipe distributions into one
-joint finite distribution before it creates a dataset. It then optionally sends public question
-sections to a model and scores the returned answers. Copy `config/pipeline.example.yaml` and
-configure the run size, weighted domain mixture, internal generation levels, and optional `recipes`
-mixture. Generation levels
+joint finite distribution before it creates a dataset. Dataset generation and model evaluation are
+separate operations, so one persisted dataset can be evaluated by several models without being
+regenerated. Copy `config/dataset.example.yaml` and configure the run size, weighted domain mixture,
+internal generation levels, and `recipes` mixture (use `{}` to select all recipes). Generation levels
 retain the existing generator controls but are deliberately absent from public examples and result
 tables: they are not presented as validated measurements of difficulty.
 
-Omit `run.seed` for an unpredictable 128-bit seed. The resolved seed is written to the private run
+Set `run.seed` to `null` for an unpredictable 128-bit seed. The resolved seed is written to the private run
 manifest, so the run can later be reproduced by putting that value into the configuration. Item
-seeds are derived independently from the root seed and item position. Target recipes are validated
+seeds are derived independently from the root seed, item position, domain, and recipe. Target recipes are validated
 against the injected benchmark catalog before generation and dispatched directly. Unknown domains
 or recipe IDs therefore fail at startup rather than consuming a retry budget or silently changing
 the requested distribution.
@@ -429,27 +432,33 @@ the requested distribution.
 Generate a dataset without making API calls:
 
 ```powershell
-pixi run -e dev python -m topology_benchmark.pipeline config/pipeline.example.yaml --generate-only
+pixi run -e dev python -m topology_benchmark.pipeline generate config/dataset.example.yaml
 ```
 
-After configuring a model provider, run it and score its responses:
+Copy `config/evaluation.example.yaml`, configure the provider, and evaluate the persisted dataset:
 
 ```powershell
-pixi run -e dev python -m topology_benchmark.pipeline config/pipeline.example.yaml
+pixi run -e dev python -m topology_benchmark.pipeline evaluate `
+  benchmark-runs/<dataset-id> config/evaluation.example.yaml
 ```
 
-Each run has a content-derived identifier and writes a separate directory containing:
+The dataset ID hashes the resolved root seed, normalized joint selection law, dataset size, schema,
+and domain generator/rendering fingerprints. The content ID additionally covers every public and
+private record and every media file. A dataset directory contains:
 
 | Artifact | Contents |
 | --- | --- |
 | `dataset.public.jsonl` | IDs, domains, questions, and relative media paths |
 | `media/` | The SVG question sections sent to or published for answerers |
-| `ground_truth.private.jsonl` | Answers, recipe IDs, and generator seeds |
-| `manifest.private.json` | Resolved root seed, configuration, and realized mix |
-| `predictions.jsonl` | Raw responses, extracted answers, correctness, and API errors |
-| `summary.json` | Overall and per-question accuracy plus failed-request count |
+| `ground_truth.private.jsonl` | Typed answers, recipe IDs, and generator seeds |
+| `manifest.private.json` | Dataset/content IDs, resolved specification, and realized mix |
+| `evaluations/<evaluation-id>/` | Results for one model, request policy, and scorer version |
 
-For an API with the OpenAI Chat Completions request shape, add:
+Each completed model request is atomically checkpointed under the evaluation's `predictions/`
+directory. Repeating the same evaluate command skips those items and resumes the unfinished work.
+On completion, `predictions.jsonl` and `summary.json` are rebuilt atomically from the checkpoints.
+
+For an API with the OpenAI Chat Completions request shape, the evaluation file contains:
 
 ```yaml
 model_provider:
@@ -457,6 +466,7 @@ model_provider:
   model: provider-model-id
   api_key_env: BENCHMARK_API_KEY
   timeout_seconds: 60
+  extra_headers: {}
 
 evaluation:
   max_retries: 2
@@ -500,5 +510,5 @@ pixi run -e dev check         # typecheck + lint + format-check
 ```
 
 Tests cover topological validity, known quotient constructions, homology, deterministic rendering,
-path layout, configuration layering, probability cohorts, reproducibility, and the generic demo
+path layout, strict configuration validation, probability cohorts, reproducibility, and the generic demo
 contract.

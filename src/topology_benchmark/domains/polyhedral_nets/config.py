@@ -1,44 +1,70 @@
-from attrs import field, frozen, validators
+from pathlib import Path
+from typing import Annotated, Self
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from topology_benchmark.core.configuration import load_yaml_config
+
+type PositiveInteger = Annotated[int, Field(ge=1)]
+type Nonnegative = Annotated[float, Field(ge=0, allow_inf_nan=False)]
+type Difficulty = Annotated[int, Field(ge=1, le=10)]
+type RecipeWeights = Annotated[dict[Difficulty, Nonnegative], Field(min_length=1)]
 
 
-@frozen
-class VertexPartitionConfig:
-    attempts: int = field(default=30, validator=validators.ge(1))
-    easy_mark_count: int = field(default=4, validator=validators.ge(1))
-    hard_mark_count: int = field(default=5, validator=validators.ge(1))
-    hard_from: int = field(default=6, validator=validators.ge(1))
+class _StrictConfigModel(BaseModel):
+    model_config = ConfigDict(frozen=True, strict=True, extra="forbid")
 
 
-@frozen
-class VertexDegreeConfig:
-    attempts: int = field(default=30, validator=validators.ge(1))
+class VertexPartitionConfig(_StrictConfigModel):
+    attempts: PositiveInteger
+    easy_mark_count: PositiveInteger
+    hard_mark_count: PositiveInteger
+    hard_from: PositiveInteger
 
 
-@frozen
-class CurvatureOrderConfig:
-    attempts: int = field(default=30, validator=validators.ge(1))
-    exact_margin: float = field(default=8.0, validator=validators.ge(0.0))
-    visible_margin: int = field(default=6, validator=validators.ge(0))
+class VertexDegreeConfig(_StrictConfigModel):
+    attempts: PositiveInteger
 
 
-@frozen
-class SeamMatchConfig:
-    attempts: int = field(default=30, validator=validators.ge(1))
-    candidate_count: int = field(default=3, validator=validators.ge(1))
+class CurvatureOrderConfig(_StrictConfigModel):
+    attempts: PositiveInteger
+    exact_margin: Nonnegative
+    visible_margin: Annotated[int, Field(ge=0)]
 
 
-@frozen
-class CellDistanceConfig:
-    attempts: int = field(default=30, validator=validators.ge(1))
-    edge_cells_from: int = field(default=4, validator=validators.ge(1))
-    vertex_cells_from: int = field(default=7, validator=validators.ge(1))
-    candidate_limit: int = field(default=24, validator=validators.ge(1))
+class SeamMatchConfig(_StrictConfigModel):
+    attempts: PositiveInteger
+    candidate_count: PositiveInteger
 
 
-@frozen
-class PolyhedralDomainConfig:
-    vertex_partition: VertexPartitionConfig = field(factory=VertexPartitionConfig)
-    vertex_degree: VertexDegreeConfig = field(factory=VertexDegreeConfig)
-    curvature_order: CurvatureOrderConfig = field(factory=CurvatureOrderConfig)
-    seam_match: SeamMatchConfig = field(factory=SeamMatchConfig)
-    cell_distance: CellDistanceConfig = field(factory=CellDistanceConfig)
+class CellDistanceConfig(_StrictConfigModel):
+    attempts: PositiveInteger
+    edge_cells_from: PositiveInteger
+    vertex_cells_from: PositiveInteger
+    candidate_limit: PositiveInteger
+
+
+class PolyhedralGenerationConfig(_StrictConfigModel):
+    profile_version: Annotated[str, Field(min_length=1)]
+    vertex_partition: VertexPartitionConfig
+    vertex_degree: VertexDegreeConfig
+    curvature_order: CurvatureOrderConfig
+    seam_match: SeamMatchConfig
+    cell_distance: CellDistanceConfig
+    recipe_weights: dict[str, RecipeWeights]
+
+    @model_validator(mode="after")
+    def _has_positive_recipe_weights(self) -> Self:
+        if not self.recipe_weights or any(
+            not any(weights.values()) for weights in self.recipe_weights.values()
+        ):
+            raise ValueError("each polyhedral recipe needs a positive weight")
+        return self
+
+
+class PolyhedralDomainConfig(_StrictConfigModel):
+    generation: PolyhedralGenerationConfig
+
+
+def load_polyhedral_domain_config(path: str | Path) -> PolyhedralDomainConfig:
+    return load_yaml_config(path, PolyhedralDomainConfig)

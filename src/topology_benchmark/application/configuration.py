@@ -10,5 +10,6 @@ def _config_directory() -> Path:
 
 
 PROJECT_CONFIG_DIRECTORY = _config_directory()
-SURFACE_GENERATION_DEFAULTS = PROJECT_CONFIG_DIRECTORY / "surfaces" / "generation.yaml"
-SURFACE_RENDERING_DEFAULTS = PROJECT_CONFIG_DIRECTORY / "surfaces" / "rendering.yaml"
+SURFACE_DOMAIN_CONFIG = PROJECT_CONFIG_DIRECTORY / "surfaces.yaml"
+POLYHEDRAL_DOMAIN_CONFIG = PROJECT_CONFIG_DIRECTORY / "polyhedral-nets.yaml"
+TORUS_DOMAIN_CONFIG = PROJECT_CONFIG_DIRECTORY / "torus-slices.yaml"

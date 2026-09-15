@@ -8,6 +8,10 @@
 - Service constructors must require every collaborator and configuration object they use.
   Do not make injected arguments nullable, give them defaults, load fallback configuration in a
   service, or resolve dependencies through a service locator.
+- Give each domain one complete deployable YAML document containing its full generation,
+  presentation, recipe-selection, and profile-version policy. Do not layer partial override files;
+  require every schema field so omitted values fail validation at startup. Retain nullable fields
+  only when an explicit null is a meaningful configured state.
 - Put environment-specific selection and intentional defaults at an explicit boundary such as
   the CLI, a configuration loader, or the composition root. Pass the resulting non-null value
   inward.
@@ -59,6 +63,14 @@
 - Publish each new multi-file run through a staging directory and move the completed directory
   into place atomically. Clean up staging data on failure, and keep collision behavior explicit so
   a reproducible run cannot be mistaken for a successful overwrite.
+- Identify a dataset from its fully resolved generation law, root seed, schema, and domain
+  configuration fingerprints. Keep model, provider, prompt, retry, and scoring settings in a
+  separate evaluation identity so persisted datasets can be reused across evaluations.
+- Persist each model prediction as an atomic per-item checkpoint. Resume an evaluation by loading
+  validated checkpoints, and derive aggregate JSONL and summary artifacts from the complete set.
+- Bump a domain's generation profile version whenever code changes can alter its generated
+  mathematical objects, prompts, answers, or rendered media; dataset identity relies on that
+  version alongside resolved configuration.
 - Represent exhausted bounded generation with a specific operational exception rather than a
   generic `RuntimeError`. Reserve `AssertionError` for unreachable internal states.
 - Extract a helper when it owns a named policy, invariant, or reusable domain operation. Do not
@@ -97,6 +109,9 @@
   renderer instead of widening `render` with optional keyword parameters.
 - Keep response extraction and answer-equivalence policy behind an injected scoring boundary.
   Pipeline orchestration must not grow a central type switch whenever a domain adds an answer form.
+- Make scoring exhaustive over the supported answer-value union. Parse structured answers into
+  canonical values, compare semantic forms rather than presentation syntax, and reject unsupported
+  answer types instead of silently converting them to strings.
 - Represent problem-recipe selection as a distribution over registered recipe objects. Recipe-specific
   generation parameters belong in typed configuration carried by the recipe; generators must not
   inspect recipe IDs to choose behavior.

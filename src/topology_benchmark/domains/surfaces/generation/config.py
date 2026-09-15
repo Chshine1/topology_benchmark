@@ -1,8 +1,6 @@
 from collections.abc import Mapping
-from pathlib import Path
-from typing import Annotated, Literal, Self, cast
+from typing import Annotated, Literal, Self
 
-import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from topology_benchmark.core.errors import ConfigurationError
@@ -27,7 +25,6 @@ from topology_benchmark.domains.surfaces.generation.context.object import (
     SurfacePathCondition,
 )
 
-type ConfigMap = dict[str, object]
 type Difficulty = Annotated[int, Field(ge=1, le=10)]
 type PolygonCount = Annotated[int, Field(ge=1, le=4)]
 type Nonnegative = Annotated[float, Field(ge=0, allow_inf_nan=False)]
@@ -228,7 +225,7 @@ class _MorphismsInput(_StrictConfigModel):
         return self
 
 
-class _GenerationInput(_StrictConfigModel):
+class SurfaceGenerationInput(_StrictConfigModel):
     profile_version: Annotated[str, Field(min_length=1)]
     noise_probability: Probability
     retry_limit: Annotated[int, Field(ge=1)]
@@ -262,18 +259,9 @@ class _GenerationInput(_StrictConfigModel):
         return self
 
 
-class _GenerationDocument(_StrictConfigModel):
-    generation: _GenerationInput
-
-
-def load_generation_config(
-    default_path: str | Path,
-    override_path: str | Path | None = None,
+def resolve_surface_generation_config(
+    source: SurfaceGenerationInput,
 ) -> SurfaceGenerationConfig:
-    merged = _read_yaml(Path(default_path))
-    if override_path is not None:
-        merged = _deep_merge(merged, _read_yaml(Path(override_path)))
-    source = _GenerationDocument.model_validate(merged).generation
     scalar = source.difficulty.scalar_profiles
     return SurfaceGenerationConfig(
         profile_version=source.profile_version,
@@ -313,7 +301,7 @@ def load_generation_config(
     )
 
 
-def _recipe_weight_profiles(source: _GenerationInput) -> dict[str, AnchoredValue]:
+def _recipe_weight_profiles(source: SurfaceGenerationInput) -> dict[str, AnchoredValue]:
     recipe_ids = tuple(
         recipe_id
         for groups in (source.recipes.object, source.recipes.morphism)
@@ -339,7 +327,9 @@ def _recipe_probability(distribution: FiniteDistribution[str], recipe_id: str) -
     return distribution.probability(lambda value: value == recipe_id)
 
 
-def _recipe_id_distribution(source: _GenerationInput, difficulty: int) -> FiniteDistribution[str]:
+def _recipe_id_distribution(
+    source: SurfaceGenerationInput, difficulty: int
+) -> FiniteDistribution[str]:
     family_weights = source.difficulty.recipe_family_weights
     families = {
         "object": (
@@ -393,22 +383,3 @@ def _morphism_condition(family: MorphismFamilyId) -> SurfaceMorphismCondition:
 
 def _anchored(values: Mapping[int, float]) -> AnchoredValue:
     return AnchoredValue(anchors=tuple(sorted(values.items())))
-
-
-def _read_yaml(path: Path) -> ConfigMap:
-    with path.open(encoding="utf-8") as stream:
-        value = cast(object, yaml.safe_load(stream))
-    if not isinstance(value, dict) or not all(isinstance(key, str) for key in value):
-        raise ConfigurationError(f"{path} must be a YAML mapping with string keys")
-    return cast(ConfigMap, value)
-
-
-def _deep_merge(base: ConfigMap, override: ConfigMap) -> ConfigMap:
-    result = dict(base)
-    for key, value in override.items():
-        current = result.get(key)
-        if isinstance(current, Mapping) and isinstance(value, Mapping):
-            result[key] = _deep_merge(dict(current), dict(value))
-        else:
-            result[key] = value
-    return result

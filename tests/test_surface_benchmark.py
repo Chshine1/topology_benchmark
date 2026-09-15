@@ -1,19 +1,17 @@
 import math
 import random
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
+import yaml
 
 from topology_benchmark import BenchmarkCatalog, build_container
-from topology_benchmark.application.configuration import (
-    SURFACE_GENERATION_DEFAULTS,
-    SURFACE_RENDERING_DEFAULTS,
-)
+from topology_benchmark.application.configuration import SURFACE_DOMAIN_CONFIG
 from topology_benchmark.core.probability.sampling import SamplingSession
 from topology_benchmark.core.problem.models import GenerationRequest
 from topology_benchmark.domains.surfaces.abstractions import SurfaceProblemRecipeCatalog
-from topology_benchmark.domains.surfaces.generation.config import load_generation_config
+from topology_benchmark.domains.surfaces.config import load_surface_domain_config
 from topology_benchmark.domains.surfaces.generation.context.object import (
     SurfaceObjectGenerationContext,
 )
@@ -34,7 +32,6 @@ from topology_benchmark.domains.surfaces.models import (
 from topology_benchmark.domains.surfaces.recipes.homology import integral_homology
 from topology_benchmark.domains.surfaces.rendering.config import (
     SurfaceRenderingConfig,
-    load_rendering_config,
 )
 from topology_benchmark.domains.surfaces.rendering.diagram import (
     DiagramStyle,
@@ -49,6 +46,10 @@ from topology_benchmark.domains.surfaces.rendering.renderer import (
 from topology_benchmark.domains.surfaces.services import SurfaceAnalyzer
 
 
+def _domain_config():
+    return load_surface_domain_config(SURFACE_DOMAIN_CONFIG)
+
+
 def _recipe(recipe_id: str) -> Any:
     return build_container().resolve(SurfaceProblemRecipeCatalog)[recipe_id]
 
@@ -56,7 +57,7 @@ def _recipe(recipe_id: str) -> Any:
 def test_generated_quotients_are_compact_surfaces_without_stored_invariants() -> None:
     analyzer = SurfaceAnalyzer()
     generator = RandomSurfacePresentationGenerator(
-        (config := load_generation_config(SURFACE_GENERATION_DEFAULTS)), analyzer
+        (config := _domain_config().generation), analyzer
     )
     for seed in range(80):
         request = GenerationRequest(seed, 8)
@@ -79,7 +80,7 @@ def test_generated_quotients_are_compact_surfaces_without_stored_invariants() ->
 def test_boundary_gluing_is_a_first_class_quotient_map() -> None:
     analyzer = SurfaceAnalyzer()
     morphism = RandomSurfaceMorphismGenerator(
-        load_generation_config(SURFACE_GENERATION_DEFAULTS), analyzer
+        _domain_config().generation, analyzer
     )._glue_two_disks(random.Random(2), 5)
     source, target = analyzer.analyze(morphism.source), analyzer.analyze(morphism.target)
 
@@ -95,9 +96,7 @@ def test_boundary_gluing_is_a_first_class_quotient_map() -> None:
 
 def test_gluing_the_annulus_boundaries_constructs_torus_or_klein_bottle() -> None:
     analyzer = SurfaceAnalyzer()
-    generator = RandomSurfaceMorphismGenerator(
-        load_generation_config(SURFACE_GENERATION_DEFAULTS), analyzer
-    )
+    generator = RandomSurfaceMorphismGenerator(_domain_config().generation, analyzer)
     targets = [
         analyzer.analyze(generator._close_annulus(random.Random(seed)).target) for seed in range(8)
     ]
@@ -118,7 +117,7 @@ def test_gluing_the_annulus_boundaries_constructs_torus_or_klein_bottle() -> Non
 def test_morphism_invariants_are_computed_from_source_and_target() -> None:
     analyzer = SurfaceAnalyzer()
     morphism = RandomSurfaceMorphismGenerator(
-        load_generation_config(SURFACE_GENERATION_DEFAULTS), analyzer
+        _domain_config().generation, analyzer
     )._glue_two_disks(random.Random(4), 3)
 
     assert _recipe("euler-change")._answer(morphism) == 0
@@ -132,7 +131,7 @@ def test_morphism_invariants_are_computed_from_source_and_target() -> None:
 
 def test_renderer_is_deterministic() -> None:
     request = GenerationRequest(3, 5)
-    generation_config = load_generation_config(SURFACE_GENERATION_DEFAULTS)
+    generation_config = _domain_config().generation
     surface = RandomSurfacePresentationGenerator(generation_config, SurfaceAnalyzer()).generate_for(
         SurfaceObjectGenerationContext(
             request,
@@ -140,7 +139,7 @@ def test_renderer_is_deterministic() -> None:
             SamplingSession(request.seed, generation_config.profile_version),
         )
     )
-    config = load_rendering_config(SURFACE_RENDERING_DEFAULTS)
+    config = _domain_config().rendering
     renderer = MatplotlibGluingDiagramRenderer(SurfaceDiagramPlanner(config), config)
 
     assert renderer.render(surface, request, random.Random(1)) == renderer.render(
@@ -150,9 +149,7 @@ def test_renderer_is_deterministic() -> None:
 
 def test_diagram_plan_uses_regular_polygons_with_one_shared_side_length() -> None:
     surface = SurfacePresentation((Polygon("T", 3), Polygon("O", 8)), ())
-    plan = SurfaceDiagramPlanner(load_rendering_config(SURFACE_RENDERING_DEFAULTS)).plan(
-        surface, random.Random(12)
-    )
+    plan = SurfaceDiagramPlanner(_domain_config().rendering).plan(surface, random.Random(12))
     lengths = [
         pytest.approx(layout.side_length) for layout in plan.polygons for _ in layout.vertices
     ]
@@ -196,7 +193,7 @@ def test_stacked_paths_get_the_required_curvature_lanes_and_display_styles() -> 
             SurfacePath("s", edge),
         ),
     )
-    config = load_rendering_config(SURFACE_RENDERING_DEFAULTS)
+    config = _domain_config().rendering
     plan = SurfaceDiagramPlanner(config).plan(surface, random.Random(4))
     interior_curvatures = [
         curve.curvature for curve in plan.curves if not curve.segment.lies_on_edge
@@ -221,9 +218,7 @@ def test_contractible_polygon_local_loop_is_drawn_as_its_directed_edge_run() -> 
         (),
         (SurfacePath("p", (OrientedEdge(edge), OrientedEdge(edge, False))),),
     )
-    plan = SurfaceDiagramPlanner(load_rendering_config(SURFACE_RENDERING_DEFAULTS)).plan(
-        surface, random.Random(9)
-    )
+    plan = SurfaceDiagramPlanner(_domain_config().rendering).plan(surface, random.Random(9))
 
     assert len(plan.curves) == 2
     assert all(curve.segment.lies_on_edge for curve in plan.curves)
@@ -231,9 +226,13 @@ def test_contractible_polygon_local_loop_is_drawn_as_its_directed_edge_run() -> 
     assert [curve.curvature for curve in plan.curves] == [32.0, 54.0]
 
 
-def test_yaml_rendering_overrides_are_injected_through_the_container() -> None:
-    override = Path(__file__).with_name("rendering_override.yaml")
-    container = build_container(override)
+def test_complete_surface_yaml_is_injected_through_the_container(tmp_path: Path) -> None:
+    document = yaml.safe_load(SURFACE_DOMAIN_CONFIG.read_text(encoding="utf-8"))
+    document["rendering"]["geometry"]["side_length"] = 150
+    document["rendering"]["stroke"]["path_width"] = 1.1
+    override = tmp_path / "surfaces.yaml"
+    override.write_text(cast(str, yaml.safe_dump(document)), encoding="utf-8")
+    container = build_container(surface_config=override)
 
     config = container.resolve(SurfaceRenderingConfig)
     planner = container.resolve(SurfaceDiagramPlanner)
@@ -267,7 +266,7 @@ def test_benchmark_generates_registered_object_and_morphism_recipes() -> None:
 def test_polygon_attachment_is_a_first_class_inclusion() -> None:
     analyzer = SurfaceAnalyzer()
     morphism = RandomSurfaceMorphismGenerator(
-        load_generation_config(SURFACE_GENERATION_DEFAULTS), analyzer
+        _domain_config().generation, analyzer
     )._attach_polygon(random.Random(5))
 
     assert morphism.name == "polygon-attachment-inclusion"

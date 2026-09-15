@@ -9,6 +9,7 @@ from topology_benchmark.domains.surfaces.abstractions import (
     SurfaceProblemRecipeCatalog,
     SurfaceProblemRecipeDistribution,
 )
+from topology_benchmark.domains.surfaces.config import SurfaceDomainConfig
 from topology_benchmark.domains.surfaces.generation.config import SurfaceGenerationConfig
 from topology_benchmark.domains.surfaces.generation.generator.morphism import (
     RandomSurfaceMorphismGenerator,
@@ -43,9 +44,11 @@ from topology_benchmark.domains.surfaces.services import SurfaceAnalyzer
 
 def add_surface_domain(
     container: Container,
-    generation_config: SurfaceGenerationConfig,
-    rendering_config: SurfaceRenderingConfig,
+    config: SurfaceDomainConfig,
 ) -> Container:
+    generation_config = config.generation
+    rendering_config = config.rendering
+    container[SurfaceDomainConfig] = config
     container[SurfaceGenerationConfig] = generation_config
     container[SurfaceRenderingConfig] = rendering_config
     container[SurfaceAnalyzer] = Singleton(SurfaceAnalyzer)

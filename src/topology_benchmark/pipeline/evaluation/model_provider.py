@@ -10,6 +10,8 @@ from topology_benchmark.core.problem.models import QuestionSection
 from topology_benchmark.core.validation import nonblank
 from topology_benchmark.pipeline.config import OpenAICompatibleModelProviderConfig
 
+OPENAI_COMPATIBLE_PROVIDER_VERSION = "openai-compatible-chat-v1"
+
 
 class IModelProvider(Protocol):
     def answer(self, question: str, sections: tuple[QuestionSection, ...]) -> str: ...

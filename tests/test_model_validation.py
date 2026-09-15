@@ -1,19 +1,29 @@
 from pathlib import Path
+from typing import cast
 
 import pytest
+import yaml
 from attrs import exceptions
 from pydantic import ValidationError
 
-from topology_benchmark.application.configuration import SURFACE_RENDERING_DEFAULTS
+from topology_benchmark import build_container
+from topology_benchmark.application.catalog import BenchmarkCatalog
+from topology_benchmark.application.configuration import SURFACE_DOMAIN_CONFIG
 from topology_benchmark.core.probability.distribution import (
     BernoulliDistribution,
     FiniteDistribution,
     WeightedValue,
 )
+from topology_benchmark.core.problem.identity import canonical_hash
 from topology_benchmark.core.problem.models import GenerationRequest
+from topology_benchmark.domains.polyhedral_nets.config import PolyhedralDomainConfig
+from topology_benchmark.domains.surfaces.config import (
+    SurfaceDomainConfig,
+    load_surface_domain_config,
+)
 from topology_benchmark.domains.surfaces.models import EdgeRef, Polygon, SurfacePresentation
-from topology_benchmark.domains.surfaces.rendering.config import load_rendering_config
-from topology_benchmark.pipeline.config import load_pipeline_config
+from topology_benchmark.domains.torus_slices.config import TorusDomainConfig
+from topology_benchmark.pipeline.config import load_dataset_config
 
 
 def test_attrs_models_use_declarative_domain_errors() -> None:
@@ -73,19 +83,59 @@ def test_attrs_models_are_frozen_and_generated_init_runs_invariants() -> None:
 
 
 def test_rendering_yaml_is_strict(tmp_path: Path) -> None:
-    override = tmp_path / "rendering.yaml"
-    override.write_text("rendering:\n  geometry:\n    curve_samples: '96'\n", encoding="utf-8")
+    document = yaml.safe_load(SURFACE_DOMAIN_CONFIG.read_text(encoding="utf-8"))
+    document["rendering"]["geometry"]["curve_samples"] = "96"
+    override = tmp_path / "surfaces.yaml"
+    override.write_text(cast(str, yaml.safe_dump(document)), encoding="utf-8")
 
     with pytest.raises(ValidationError, match="curve_samples"):
-        load_rendering_config(SURFACE_RENDERING_DEFAULTS, override)
+        load_surface_domain_config(override)
+
+
+def test_domain_yaml_requires_every_section(tmp_path: Path) -> None:
+    incomplete = tmp_path / "surfaces.yaml"
+    incomplete.write_text("rendering: {}\n", encoding="utf-8")
+
+    with pytest.raises(ValidationError, match="generation"):
+        load_surface_domain_config(incomplete)
+
+
+def test_domain_fingerprints_hash_each_complete_domain_config() -> None:
+    container = build_container()
+    catalog = container.resolve(BenchmarkCatalog)
+
+    assert catalog.configuration_fingerprint("surfaces") == canonical_hash(
+        container.resolve(SurfaceDomainConfig)
+    )
+    assert catalog.configuration_fingerprint("polyhedral-nets") == canonical_hash(
+        container.resolve(PolyhedralDomainConfig)
+    )
+    assert catalog.configuration_fingerprint("torus-slices") == canonical_hash(
+        container.resolve(TorusDomainConfig)
+    )
 
 
 def test_pipeline_yaml_rejects_unknown_fields(tmp_path: Path) -> None:
     config = tmp_path / "pipeline.yaml"
     config.write_text(
-        "generation:\n  domains:\n    surfaces: {}\nunknown: true\n",
+        "run:\n  seed: null\n  size: 1\n  output_dir: output\n"
+        "generation:\n  domains:\n    surfaces:\n      weight: 1\n"
+        "      generation_levels: {5: 1}\n      recipes: {}\nunknown: true\n",
         encoding="utf-8",
     )
 
     with pytest.raises(ValidationError, match="unknown"):
-        load_pipeline_config(config)
+        load_dataset_config(config)
+
+
+def test_pipeline_yaml_does_not_fill_missing_values(tmp_path: Path) -> None:
+    config = tmp_path / "dataset.yaml"
+    config.write_text(
+        "run:\n  seed: null\n  output_dir: output\n"
+        "generation:\n  domains:\n    surfaces:\n      weight: 1\n"
+        "      generation_levels: {5: 1}\n      recipes: {}\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValidationError, match="size"):
+        load_dataset_config(config)

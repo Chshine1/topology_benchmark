@@ -1,13 +1,6 @@
-from collections.abc import Mapping
-from pathlib import Path
-from typing import Annotated, Self, cast
+from typing import Annotated, Self
 
-import yaml
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, model_validator
-
-from topology_benchmark.core.errors import ConfigurationError
-
-type ConfigMap = dict[str, object]
 
 
 def _yaml_tuple(value: object) -> object:
@@ -112,38 +105,3 @@ class SurfaceRenderingConfig(_StrictConfigModel):
         if not self.palettes:
             raise ValueError("rendering.palettes must not be empty")
         return self
-
-
-class _RenderingDocument(_StrictConfigModel):
-    rendering: SurfaceRenderingConfig
-
-
-def load_rendering_config(
-    default_path: str | Path,
-    override_path: str | Path | None = None,
-) -> SurfaceRenderingConfig:
-    """Recursively overlay an optional file on the supplied defaults."""
-
-    merged = _read_yaml(Path(default_path))
-    if override_path is not None:
-        merged = _deep_merge(merged, _read_yaml(Path(override_path)))
-    return _RenderingDocument.model_validate(merged).rendering
-
-
-def _read_yaml(path: Path) -> ConfigMap:
-    with path.open(encoding="utf-8") as stream:
-        value = cast(object, yaml.safe_load(stream))
-    if not isinstance(value, dict) or not all(isinstance(key, str) for key in value):
-        raise ConfigurationError(f"{path} must be a YAML mapping with string keys")
-    return cast(ConfigMap, value)
-
-
-def _deep_merge(base: ConfigMap, override: ConfigMap) -> ConfigMap:
-    result = dict(base)
-    for key, value in override.items():
-        current = result.get(key)
-        if isinstance(current, Mapping) and isinstance(value, Mapping):
-            result[key] = _deep_merge(dict(current), dict(value))
-        else:
-            result[key] = value
-    return result

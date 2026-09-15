@@ -1,11 +1,13 @@
 from collections import Counter
 from pathlib import Path
 from random import Random
+from typing import cast
 
 import pytest
+import yaml
 
 from topology_benchmark import build_container
-from topology_benchmark.application.configuration import SURFACE_GENERATION_DEFAULTS
+from topology_benchmark.application.configuration import SURFACE_DOMAIN_CONFIG
 from topology_benchmark.core.probability.distribution import (
     FiniteDistribution,
     TruncatedGeometricDistribution,
@@ -19,10 +21,8 @@ from topology_benchmark.domains.surfaces.abstractions import (
     ISurfaceMorphismGenerator,
     SurfaceProblemRecipeDistribution,
 )
-from topology_benchmark.domains.surfaces.generation.config import (
-    SurfaceGenerationConfig,
-    load_generation_config,
-)
+from topology_benchmark.domains.surfaces.config import load_surface_domain_config
+from topology_benchmark.domains.surfaces.generation.config import SurfaceGenerationConfig
 from topology_benchmark.domains.surfaces.generation.context.object import (
     DistinguishedSurfacePaths,
     NoSurfacePaths,
@@ -36,6 +36,10 @@ from topology_benchmark.domains.surfaces.generation.generator.object import (
     RandomSurfacePresentationGenerator,
 )
 from topology_benchmark.domains.surfaces.services import SurfaceAnalyzer
+
+
+def _generation_config() -> SurfaceGenerationConfig:
+    return load_surface_domain_config(SURFACE_DOMAIN_CONFIG).generation
 
 
 def test_named_random_streams_are_reproducible_and_independent() -> None:
@@ -64,7 +68,7 @@ def test_difficulty_profiles_interpolate_smoothly() -> None:
 
 
 def test_default_recipe_distribution_follows_configured_cohort_weights() -> None:
-    config = load_generation_config(SURFACE_GENERATION_DEFAULTS)
+    config = _generation_config()
     distribution = build_container().resolve(SurfaceProblemRecipeDistribution)
 
     def cohort(difficulty: int) -> Counter[str]:
@@ -82,7 +86,7 @@ def test_default_recipe_distribution_follows_configured_cohort_weights() -> None
 
 
 def test_paths_are_question_aligned_but_allow_low_rate_noise() -> None:
-    config = load_generation_config(SURFACE_GENERATION_DEFAULTS)
+    config = _generation_config()
     generator = RandomSurfacePresentationGenerator(config, SurfaceAnalyzer())
     incidental = 0
     cohort_size = 500
@@ -112,7 +116,7 @@ def test_paths_are_question_aligned_but_allow_low_rate_noise() -> None:
 
 
 def test_surface_laws_support_exact_semantic_computation() -> None:
-    config = load_generation_config(SURFACE_GENERATION_DEFAULTS)
+    config = _generation_config()
     cycle_law = config.object_law_for("path-is-cycle")
 
     assert cycle_law.probability(
@@ -137,7 +141,7 @@ def test_surface_conditions_validate_positive_counts_on_attrs_fields() -> None:
 
 
 def test_simple_two_disk_spheres_are_rare_at_high_difficulty() -> None:
-    config = load_generation_config(SURFACE_GENERATION_DEFAULTS)
+    config = _generation_config()
     families: Counter[str] = Counter()
     for seed in range(1000):
         request = GenerationRequest(seed, 10)
@@ -150,9 +154,12 @@ def test_simple_two_disk_spheres_are_rare_at_high_difficulty() -> None:
     assert len(families) == 5
 
 
-def test_generation_yaml_is_layered_and_injected() -> None:
-    override = Path(__file__).with_name("generation_override.yaml")
-    container = build_container(generation_config=override)
+def test_complete_surface_yaml_is_injected(tmp_path: Path) -> None:
+    document = yaml.safe_load(SURFACE_DOMAIN_CONFIG.read_text(encoding="utf-8"))
+    document["generation"]["profile_version"] = "test-object-profile"
+    override = tmp_path / "surfaces.yaml"
+    override.write_text(cast(str, yaml.safe_dump(document)), encoding="utf-8")
+    container = build_container(surface_config=override)
     config = container.resolve(SurfaceGenerationConfig)
     generator = container.resolve(ISurfaceGenerator)
     morphism_generator = container.resolve(ISurfaceMorphismGenerator)

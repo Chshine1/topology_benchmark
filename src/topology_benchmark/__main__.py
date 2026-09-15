@@ -7,6 +7,11 @@ from pydantic import ValidationError
 
 from topology_benchmark.application.bootstrap import build_container
 from topology_benchmark.application.catalog import BenchmarkCatalog
+from topology_benchmark.application.configuration import (
+    POLYHEDRAL_DOMAIN_CONFIG,
+    SURFACE_DOMAIN_CONFIG,
+    TORUS_DOMAIN_CONFIG,
+)
 from topology_benchmark.application.demo import serve_demo
 from topology_benchmark.application.errors import BenchmarkApplicationError
 from topology_benchmark.core.errors import ConfigurationError, GenerationError
@@ -25,19 +30,15 @@ def main() -> None:
     parser.add_argument("--serve", action="store_true", help="run the local visual demo")
     parser.add_argument("--host", default="127.0.0.1", help="demo bind address")
     parser.add_argument("--port", type=int, default=8000, help="demo TCP port")
-    parser.add_argument(
-        "--rendering-config",
-        help="YAML file layered over the default surface rendering configuration",
-    )
-    parser.add_argument(
-        "--generation-config",
-        help="YAML file layered over the default surface generation profile",
-    )
+    parser.add_argument("--surface-config", help="complete surface-domain YAML configuration")
+    parser.add_argument("--polyhedral-config", help="complete polyhedral-domain YAML configuration")
+    parser.add_argument("--torus-config", help="complete torus-domain YAML configuration")
     args = parser.parse_args()
     try:
         container = build_container(
-            rendering_config=args.rendering_config,
-            generation_config=args.generation_config,
+            surface_config=args.surface_config or SURFACE_DOMAIN_CONFIG,
+            polyhedral_config=args.polyhedral_config or POLYHEDRAL_DOMAIN_CONFIG,
+            torus_config=args.torus_config or TORUS_DOMAIN_CONFIG,
         )
     except (OSError, ConfigurationError, ValidationError, yaml.YAMLError) as error:
         parser.error(str(error))

@@ -10,6 +10,7 @@ class ModelPrediction:
     extracted_answer: str
     correct: bool
     error: str | None
+    attempts: int
 
 
 @frozen

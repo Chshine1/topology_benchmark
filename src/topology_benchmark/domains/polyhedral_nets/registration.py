@@ -1,5 +1,6 @@
 from lagom import Container, Singleton
 
+from topology_benchmark.core.errors import ConfigurationError
 from topology_benchmark.core.problem.recipe_distribution import DifficultyProblemRecipeWeight
 from topology_benchmark.domains.polyhedral_nets.abstractions import (
     IPolyhedralNetGenerator,
@@ -45,6 +46,7 @@ from topology_benchmark.domains.polyhedral_nets.services.polyhedral_net_analyzer
 
 
 def add_polyhedral_nets_domain(container: Container, config: PolyhedralDomainConfig) -> Container:
+    generation = config.generation
     container[RandomPolyhedralNetGenerator] = RandomPolyhedralNetGenerator
     container[IPolyhedralNetGenerator] = RandomPolyhedralNetGenerator
     container[PolyhedralNetAnalyzer] = Singleton(PolyhedralNetAnalyzer)
@@ -55,11 +57,11 @@ def add_polyhedral_nets_domain(container: Container, config: PolyhedralDomainCon
     container[PolyhedralCellGraphAnalyzer] = Singleton(PolyhedralCellGraphAnalyzer)
     container[NetObservationBuilder] = Singleton(NetObservationBuilder)
     container[PolyhedralDomainConfig] = config
-    container[VertexPartitionConfig] = config.vertex_partition
-    container[VertexDegreeConfig] = config.vertex_degree
-    container[CurvatureOrderConfig] = config.curvature_order
-    container[SeamMatchConfig] = config.seam_match
-    container[CellDistanceConfig] = config.cell_distance
+    container[VertexPartitionConfig] = generation.vertex_partition
+    container[VertexDegreeConfig] = generation.vertex_degree
+    container[CurvatureOrderConfig] = generation.curvature_order
+    container[SeamMatchConfig] = generation.seam_match
+    container[CellDistanceConfig] = generation.cell_distance
     seam_match = container.resolve(SeamMatchProblemRecipe)
     vertex_partition = container.resolve(VertexPartitionProblemRecipe)
     cell_distance = container.resolve(CellDistanceProblemRecipe)
@@ -74,15 +76,20 @@ def add_polyhedral_nets_domain(container: Container, config: PolyhedralDomainCon
         curvature_order,
         shortest_path_count,
     )
-    container[PolyhedralProblemRecipeCatalog] = PolyhedralProblemRecipeCatalog(recipes)
+    catalog = PolyhedralProblemRecipeCatalog(recipes)
+    configured_ids = set(generation.recipe_weights)
+    registered_ids = set(catalog)
+    if configured_ids != registered_ids:
+        raise ConfigurationError(
+            "polyhedral distribution and catalog disagree; "
+            f"missing={sorted(registered_ids - configured_ids)}, "
+            f"unknown={sorted(configured_ids - registered_ids)}"
+        )
+    container[PolyhedralProblemRecipeCatalog] = catalog
     container[PolyhedralProblemRecipeDistribution] = PolyhedralProblemRecipeDistribution(
-        (
-            DifficultyProblemRecipeWeight(seam_match, ((1, 1.0), (4, 1.0))),
-            DifficultyProblemRecipeWeight(vertex_partition, ((1, 1.0), (4, 1.0))),
-            DifficultyProblemRecipeWeight(cell_distance, ((1, 1.0), (4, 1.0))),
-            DifficultyProblemRecipeWeight(vertex_degree, ((1, 0.0), (3, 0.0), (4, 1.0))),
-            DifficultyProblemRecipeWeight(curvature_order, ((1, 0.0), (3, 0.0), (4, 1.0))),
-            DifficultyProblemRecipeWeight(shortest_path_count, ((1, 0.0), (3, 0.0), (4, 1.0))),
+        tuple(
+            DifficultyProblemRecipeWeight(catalog[recipe_id], tuple(sorted(weights.items())))
+            for recipe_id, weights in generation.recipe_weights.items()
         )
     )
     return container

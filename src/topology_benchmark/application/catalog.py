@@ -17,6 +17,7 @@ class BenchmarkRegistration:
     id: str
     recipes: ProblemRecipeCatalog[Any]
     default_distribution: IProblemRecipeDistribution[Any]
+    configuration_fingerprint: str
 
 
 class BenchmarkCatalog:
@@ -42,6 +43,9 @@ class BenchmarkCatalog:
     def require_recipe(self, domain: str, recipe_id: str) -> None:
         registration = self._get_required_registration(domain)
         self._get_required_recipe(registration, recipe_id)
+
+    def configuration_fingerprint(self, domain: str) -> str:
+        return self._get_required_registration(domain).configuration_fingerprint
 
     def generate(
         self,

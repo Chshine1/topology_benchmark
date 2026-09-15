@@ -1,58 +1,62 @@
-import hashlib
-import json
 import shutil
 import tempfile
 from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
 
-from topology_benchmark.pipeline.config import PipelineConfig
-from topology_benchmark.pipeline.dataset.models import GeneratedBenchmarkRun, GeneratedItem
+from topology_benchmark.core.problem.identity import canonical_value
+from topology_benchmark.pipeline.dataset.answer_serialization import serialize_answer
+from topology_benchmark.pipeline.dataset.identity import dataset_content_id
+from topology_benchmark.pipeline.dataset.models import (
+    DatasetPlan,
+    GeneratedBenchmarkRun,
+    GeneratedItem,
+)
 from topology_benchmark.pipeline.serialization.json_writer import write_json, write_jsonl
-
-DATASET_SCHEMA_VERSION = 2
 
 
 class DatasetArtifactWriter:
     def write(
         self,
-        config: PipelineConfig,
-        root_seed: int,
+        plan: DatasetPlan,
         items: tuple[GeneratedItem, ...],
     ) -> GeneratedBenchmarkRun:
-        run_id = _run_id(config, root_seed)
-        run_directory = config.output_dir / run_id
-        config.output_dir.mkdir(parents=True, exist_ok=True)
+        run_directory = plan.output_directory / plan.dataset_id
+        plan.output_directory.mkdir(parents=True, exist_ok=True)
         if run_directory.exists():
-            raise FileExistsError(f"benchmark run already exists: {run_directory}")
+            raise FileExistsError(f"benchmark dataset already exists: {run_directory}")
         staging_directory = Path(
-            tempfile.mkdtemp(prefix=f".{run_id}-", suffix=".tmp", dir=config.output_dir)
+            tempfile.mkdtemp(
+                prefix=f".{plan.dataset_id}-", suffix=".tmp", dir=plan.output_directory
+            )
         )
         try:
             media_directory = staging_directory / "media"
             media_directory.mkdir()
-            self._write_dataset(staging_directory, media_directory, items)
+            public_records, private_records = self._write_dataset(
+                staging_directory, media_directory, items
+            )
+            content_id = dataset_content_id(staging_directory, public_records, private_records)
             write_json(
                 staging_directory / "manifest.private.json",
-                _manifest(config, root_seed, run_id, items),
+                _manifest(plan, content_id, items),
             )
             staging_directory.rename(run_directory)
         except BaseException:
             shutil.rmtree(staging_directory, ignore_errors=True)
             raise
-        return GeneratedBenchmarkRun(run_directory, items)
+        return GeneratedBenchmarkRun(run_directory, plan.dataset_id, content_id, items)
 
     @staticmethod
     def _write_dataset(
         run_directory: Path,
         media_directory: Path,
         items: tuple[GeneratedItem, ...],
-    ) -> None:
-        public_records = []
-        private_records = []
+    ) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+        public_records: list[dict[str, object]] = []
+        private_records: list[dict[str, object]] = []
         for item in items:
-            media = []
+            media: list[dict[str, str]] = []
             for index, section in enumerate(item.problem.sections):
                 path = (
                     media_directory / f"{item.item_id}-{index}{_media_suffix(section.media_type)}"
@@ -75,64 +79,36 @@ class DatasetArtifactWriter:
             private_records.append(
                 {
                     "id": item.item_id,
-                    "answer": item.problem.answer,
+                    "answer": serialize_answer(item.problem.answer),
                     "generator_seed": item.problem.seed,
                     "recipe_id": item.problem.recipe_id,
                 }
             )
         write_jsonl(run_directory / "dataset.public.jsonl", public_records)
         write_jsonl(run_directory / "ground_truth.private.jsonl", private_records)
+        return public_records, private_records
 
 
 def _manifest(
-    config: PipelineConfig,
-    root_seed: int,
-    run_id: str,
+    plan: DatasetPlan,
+    content_id: str,
     items: tuple[GeneratedItem, ...],
-) -> dict[str, Any]:
+) -> dict[str, object]:
     combinations = Counter((item.domain, item.problem.recipe_id) for item in items)
     return {
-        "schema_version": DATASET_SCHEMA_VERSION,
-        "run_id": run_id,
+        "schema_version": plan.specification.schema_version,
+        "dataset_id": plan.dataset_id,
+        "content_id": content_id,
         "created_at": datetime.now(UTC).isoformat(),
-        "root_seed": root_seed,
-        "size": len(items),
+        "specification": canonical_value(plan.specification),
         "realized_distribution": {
             f"{domain}/{recipe_id}": count
             for (domain, recipe_id), count in sorted(combinations.items())
         },
-        "resolved_config": _manifest_config(config),
     }
-
-
-def _run_id(config: PipelineConfig, root_seed: int) -> str:
-    run_configuration = _manifest_config(config)
-    run_configuration["output_dir"] = "<excluded>"
-    serialized = json.dumps(run_configuration, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(
-        f"run:v{DATASET_SCHEMA_VERSION}:{root_seed}:{serialized}".encode()
-    ).hexdigest()[:16]
-
-
-def _manifest_config(config: PipelineConfig) -> dict[str, Any]:
-    value = _jsonable(config.model_dump())
-    provider = value.get("model_provider")
-    if isinstance(provider, dict):
-        provider["extra_headers"] = {key: "<redacted>" for key in provider.get("extra_headers", {})}
-    return value
 
 
 def _media_suffix(media_type: str) -> str:
     return {"image/svg+xml": ".svg", "image/png": ".png", "text/plain": ".txt"}.get(
         media_type, ".bin"
     )
-
-
-def _jsonable(value: Any) -> Any:
-    if isinstance(value, Path):
-        return str(value)
-    if isinstance(value, dict):
-        return {str(key): _jsonable(item) for key, item in value.items()}
-    if isinstance(value, list | tuple):
-        return [_jsonable(item) for item in value]
-    return value

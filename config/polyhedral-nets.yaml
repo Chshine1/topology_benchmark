@@ -1,0 +1,33 @@
+generation:
+  profile_version: "polyhedral-nets-v8"
+  vertex_partition:
+    attempts: 30
+    easy_mark_count: 4
+    hard_mark_count: 5
+    hard_from: 6
+
+  vertex_degree:
+    attempts: 30
+
+  curvature_order:
+    attempts: 30
+    exact_margin: 8.0
+    visible_margin: 6
+
+  seam_match:
+    attempts: 30
+    candidate_count: 3
+
+  cell_distance:
+    attempts: 30
+    edge_cells_from: 4
+    vertex_cells_from: 7
+    candidate_limit: 24
+
+  recipe_weights:
+    seam-match: {1: 1.0, 4: 1.0}
+    vertex-partition: {1: 1.0, 4: 1.0}
+    cell-distance: {1: 1.0, 4: 1.0}
+    vertex-degree: {1: 0.0, 3: 0.0, 4: 1.0}
+    curvature-order: {1: 0.0, 3: 0.0, 4: 1.0}
+    cell-shortest-path-count: {1: 0.0, 3: 0.0, 4: 1.0}
