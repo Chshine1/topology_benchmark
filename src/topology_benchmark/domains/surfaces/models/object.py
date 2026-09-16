@@ -6,7 +6,6 @@ from topology_benchmark.core.validation import nonblank, nonempty, number_range
 
 @frozen
 class Polygon:
-    name: str
     sides: int = field(
         validator=number_range(
             minimum=3,
@@ -46,7 +45,6 @@ class EdgeGluing:
     first: EdgeRef
     second: EdgeRef
 
-    label: str = field(validator=nonblank("a gluing label cannot be empty"))
     same_direction: bool = False
 
     def __attrs_post_init__(self) -> None:
@@ -77,16 +75,12 @@ class SurfacePresentation:
 
     def __attrs_post_init__(self) -> None:
         used: set[EdgeRef] = set()
-        labels: set[str] = set()
         for gluing in self.gluings:
             self._validate_edge(gluing.first)
             self._validate_edge(gluing.second)
             if gluing.first in used or gluing.second in used:
                 raise ValueError("each edge can be glued at most once")
-            if gluing.label in labels:
-                raise ValueError("gluing labels must be unique")
             used.update((gluing.first, gluing.second))
-            labels.add(gluing.label)
 
         labelled_edges: set[EdgeRef] = set()
         display_labels: set[str] = set()

@@ -10,6 +10,17 @@ def quadratic(a: Point, c: Point, b: Point, t: float) -> Point:
     )
 
 
+def point_at_fraction(curve: tuple[Point, ...], fraction: float) -> Point:
+    position = fraction * (len(curve) - 1)
+    lower = min(len(curve) - 2, int(position))
+    local = position - lower
+    start, end = curve[lower], curve[lower + 1]
+    return (
+        start[0] + (end[0] - start[0]) * local,
+        start[1] + (end[1] - start[1]) * local,
+    )
+
+
 def unit(x: float, y: float) -> Point:
     length = max(1e-9, math.hypot(x, y))
     return x / length, y / length

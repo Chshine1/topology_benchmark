@@ -47,7 +47,6 @@ from topology_benchmark.domains.surfaces.rendering.representation import (
     SurfaceRenderBackendCatalog,
     SurfaceRepresentation,
 )
-from topology_benchmark.domains.surfaces.rendering.visual_style import SurfaceVisualStyleSelector
 from topology_benchmark.domains.surfaces.services import SurfaceAnalyzer
 
 
@@ -62,7 +61,6 @@ def add_surface_domain(
     container[SurfaceGenerationConfig] = generation_config
     container[SurfaceRenderingConfig] = rendering_config
     container[BlenderRuntimeConfig] = blender_runtime
-    container[SurfaceVisualStyleSelector] = Singleton(SurfaceVisualStyleSelector)
     container[SurfaceAnalyzer] = Singleton(SurfaceAnalyzer)
     container[SurfaceDiagramPlanner] = SurfaceDiagramPlanner
     container[RandomSurfacePresentationGenerator] = RandomSurfacePresentationGenerator

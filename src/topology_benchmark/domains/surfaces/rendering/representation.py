@@ -46,4 +46,4 @@ class SurfaceRepresentation(ISurfaceRepresentation):
     ) -> QuestionSection:
         del rng
         plan = self._planner.plan(obj, Random((request.seed << 8) ^ 0xA53C9E))
-        return self._backends[plan.style.visual.profile.backend].render(obj, plan, request)
+        return self._backends[plan.style.visual.backend].render(obj, plan, request)

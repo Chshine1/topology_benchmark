@@ -12,7 +12,7 @@ from topology_benchmark.domains.surfaces.generation.context.object import (
     SurfaceObjectGenerationContext,
 )
 from topology_benchmark.domains.surfaces.models import SurfaceMorphism, SurfacePresentation
-from topology_benchmark.domains.surfaces.rendering.diagram import DiagramPlan
+from topology_benchmark.domains.surfaces.rendering.diagram_planner import DiagramPlan
 
 type SurfaceAnswer = int | str | bool | tuple[int, ...]
 
@@ -38,7 +38,7 @@ class ISurfaceRepresentation(IRepresentation[SurfacePresentation], Protocol):
 class ISurfaceRenderBackend(Protocol):
     def render(
         self,
-        obj: SurfacePresentation,
+        surface: SurfacePresentation,
         plan: DiagramPlan,
         request: GenerationRequest,
     ) -> QuestionSection: ...

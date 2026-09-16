@@ -44,24 +44,23 @@ class RandomSurfacePresentationGenerator(ISurfaceGenerator):
     ) -> SurfacePresentation:
         condition = context.sampling.sample("surface.condition", context.law)
         for _ in range(self.config.retry_limit):
-            polygon_count = self._polygon_count(context, condition, rng)
+            polygon_count = self._generate_polygon_count(context, condition, rng)
             polygons = tuple(
-                Polygon(chr(ord("P") + index), self._side_count(context.request, rng))
-                for index in range(polygon_count)
+                Polygon(self._generate_side_count(context.request, rng))
+                for _ in range(polygon_count)
             )
             edges = [
                 EdgeRef(polygon, edge)
                 for polygon, shape in enumerate(polygons)
                 for edge in range(shape.sides)
             ]
-            pair_count = self._pair_count(context, len(edges), rng)
+            pair_count = self._generate_pair_count(context, len(edges), rng)
             rng.shuffle(edges)
             selected = edges[: 2 * pair_count]
             gluings = tuple(
                 EdgeGluing(
                     selected[2 * index],
                     selected[2 * index + 1],
-                    self._label(index),
                     rng.choice((True, False)),
                 )
                 for index in range(pair_count)
@@ -93,29 +92,27 @@ class RandomSurfacePresentationGenerator(ISurfaceGenerator):
                     continue
             return completed
 
-        if isinstance(condition.paths, NontrivialHomologySurfacePath):
-            fallback = SurfacePresentation(
-                (Polygon("P", 4),),
-                (
-                    EdgeGluing(EdgeRef(0, 0), EdgeRef(0, 2), "a"),
-                    EdgeGluing(EdgeRef(0, 1), EdgeRef(0, 3), "b"),
-                ),
-                (SurfacePath("p", (OrientedEdge(EdgeRef(0, 0)),)),),
-            )
-            return fallback
         fallback_rng = context.sampling.rng("surface.fallback")
         polygons = tuple(
-            Polygon(chr(ord("P") + index), 3 + fallback_rng.randrange(4))
-            for index in range(condition.component_count)
+            Polygon(3 + fallback_rng.randrange(4)) for _ in range(condition.component_count)
         )
         fallback = SurfacePresentation(polygons, ())
         return SurfacePresentation(
             fallback.polygons,
             (),
-            self._paths(fallback, context, condition),
+            self._paths(
+                fallback,
+                context,
+                SurfaceObjectCondition(
+                    condition.component_count,
+                    DistinguishedSurfacePaths(
+                        fallback_rng.randint(1, 3), first_closed=fallback_rng.choice([True, False])
+                    ),
+                ),
+            ),
         )
 
-    def _polygon_count(
+    def _generate_polygon_count(
         self,
         context: SurfaceObjectGenerationContext,
         condition: SurfaceObjectCondition,
@@ -139,11 +136,11 @@ class RandomSurfacePresentationGenerator(ISurfaceGenerator):
             )
         return FiniteDistribution(tuple(options)).sample(rng)
 
-    def _side_count(self, request: GenerationRequest, rng: Random) -> int:
+    def _generate_side_count(self, request: GenerationRequest, rng: Random) -> int:
         continuation = self.config.difficulty.side_continuation.at(request.difficulty)
         return TruncatedGeometricDistribution(3, 8, continuation).sample(rng)
 
-    def _pair_count(
+    def _generate_pair_count(
         self, context: SurfaceObjectGenerationContext, edge_count: int, rng: Random
     ) -> int:
         maximum = edge_count // 2
@@ -260,8 +257,3 @@ class RandomSurfacePresentationGenerator(ISurfaceGenerator):
             )
             walk = (edge,)
         return SurfacePath(chr(ord("p") + index), walk)
-
-    @staticmethod
-    def _label(index: int) -> str:
-        alphabet = "abcdefghijklmnopqrstuvwxyz"
-        return alphabet[index] if index < len(alphabet) else f"g{index + 1}"

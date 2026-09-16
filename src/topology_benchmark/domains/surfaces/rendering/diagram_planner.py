@@ -1,6 +1,3 @@
-from topology_benchmark.utils.planer_vector import unit
-from topology_benchmark.utils.planer_vector import quadratic
-from topology_benchmark.utils.planer_vector import Point
 import itertools
 import math
 from dataclasses import dataclass
@@ -8,6 +5,7 @@ from enum import Enum
 from random import Random
 from typing import Iterable
 
+from topology_benchmark.core.probability.distribution import FiniteDistribution, WeightedValue
 from topology_benchmark.domains.surfaces.models import (
     EdgeRef,
     OrientedEdge,
@@ -15,15 +13,18 @@ from topology_benchmark.domains.surfaces.models import (
     SurfacePresentation,
 )
 from topology_benchmark.domains.surfaces.models.utils.surface_representation import edges_connected
-from topology_benchmark.domains.surfaces.rendering.config import CanvasConfig
-from topology_benchmark.domains.surfaces.rendering.config import SurfaceRenderingConfig
-from topology_benchmark.domains.surfaces.rendering.visual_style import (
-    SelectedVisualStyle,
-    SurfaceVisualStyleSelector,
+from topology_benchmark.domains.surfaces.rendering.config import (
+    CanvasConfig,
+    SurfaceVisualStyleConfig,
+    PaletteConfig,
 )
+from topology_benchmark.domains.surfaces.rendering.config import SurfaceRenderingConfig
+from topology_benchmark.utils.planer_vector import Point
+from topology_benchmark.utils.planer_vector import quadratic
+from topology_benchmark.utils.planer_vector import unit
 
 
-class LinePattern(Enum):
+class LineStyle(Enum):
     SOLID = "solid"
     DOTTED = "dotted"
 
@@ -35,8 +36,9 @@ class OrderDisplay(Enum):
 
 @dataclass(frozen=True, slots=True)
 class DiagramStyle:
-    visual: SelectedVisualStyle
-    boundary_pattern: LinePattern
+    visual: SurfaceVisualStyleConfig
+    palette: PaletteConfig
+    boundary: LineStyle
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,9 +48,19 @@ class PathStyle:
 
 
 @dataclass(frozen=True, slots=True)
-class PolygonLayout:
+class EdgeView:
+    line_style_override: LineStyle
+    label: str
+    preserve_orientation: bool
+
+
+@dataclass(frozen=True, slots=True)
+class PolygonView:
+    label: str
     center: Point
     vertices: tuple[Point, ...]
+    edge_views: dict[int, EdgeView]
+    homology_basis: dict[int, str]
     path_segment_groups: tuple[StyledSegmentsGroup, ...]
 
     def edge(self, index: int) -> tuple[Point, Point]:
@@ -59,14 +71,10 @@ class PolygonLayout:
 class PathSegmentGeometry:
     points: tuple[Point, ...]
     curvature: float
-    tag_position: Point | None = None
-    name_position: Point | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class PathSegment:
-    path_index: int
-    polygon: int
     edges: tuple[OrientedEdge, ...]
     order: int
     geometry: PathSegmentGeometry
@@ -82,14 +90,12 @@ class StyledSegmentsGroup:
 class DiagramPlan:
     width: int
     height: int
-    polygons: tuple[PolygonLayout, ...]
+    polygon_views: tuple[PolygonView, ...]
     style: DiagramStyle
 
 
 @dataclass(frozen=True, slots=True)
 class _RawPathSegment:
-    path_index: int
-    polygon: int
     edges: tuple[OrientedEdge, ...]
     order: int
 
@@ -101,51 +107,54 @@ class SurfaceDiagramPlanner:
     def __init__(
         self,
         config: SurfaceRenderingConfig,
-        style_selector: SurfaceVisualStyleSelector,
     ) -> None:
         self._config = config
-        self._style_selector = style_selector
 
     def plan(self, surface: SurfacePresentation, rng: Random) -> DiagramPlan:
         canvas_config = self._config.canvas
+
         columns = min(canvas_config.max_columns, len(surface.polygons))
         rows = math.ceil(len(surface.polygons) / columns)
         width = round(2 * canvas_config.margin_x + columns * canvas_config.cell_width)
         height = round(2 * canvas_config.margin_y + rows * canvas_config.cell_height)
-        selected_style = self._style_selector.select(rng)
-        layouts = self._get_polygon_layouts(canvas_config, selected_style, columns, surface, rng)
-        return DiagramPlan(width, height, layouts, DiagramStyle(selected_style, LinePattern.SOLID))
+
+        styles_distribution = FiniteDistribution(
+            tuple(WeightedValue(style, style.weight) for style in self._config.styles)
+        )
+        visual_style = styles_distribution.sample(rng)
+
+        layouts = self._get_polygon_views(canvas_config, visual_style, columns, surface, rng)
+        return DiagramPlan(
+            width,
+            height,
+            layouts,
+            DiagramStyle(visual_style, rng.choice(visual_style.palettes), LineStyle.SOLID),
+        )
 
     @staticmethod
     def edge_pattern(
-        surface: SurfacePresentation, edge: EdgeRef, boundary_pattern: LinePattern
-    ) -> LinePattern:
+        surface: SurfacePresentation, edge: EdgeRef, boundary_pattern: LineStyle
+    ) -> LineStyle:
         for gluing in surface.gluings:
             if edge == gluing.first:
                 return (
-                    LinePattern.DOTTED
-                    if gluing.second.polygon != edge.polygon
-                    else LinePattern.SOLID
+                    LineStyle.DOTTED if gluing.second.polygon != edge.polygon else LineStyle.SOLID
                 )
             if edge == gluing.second:
-                return (
-                    LinePattern.DOTTED
-                    if gluing.first.polygon != edge.polygon
-                    else LinePattern.SOLID
-                )
+                return LineStyle.DOTTED if gluing.first.polygon != edge.polygon else LineStyle.SOLID
         return boundary_pattern
 
     @staticmethod
     def _generate_styled_paths(
-        selected_style: SelectedVisualStyle, paths: tuple[SurfacePath, ...], rng: Random
+        style: DiagramStyle, paths: tuple[SurfacePath, ...], rng: Random
     ) -> Iterable[tuple[SurfacePath, PathStyle]]:
-        limit = selected_style.profile.arrows.path_count_limit
+        limit = style.visual.arrows.path_count_limit
 
         return (
             (
                 path,
                 PathStyle(
-                    color=rng.choice(selected_style.palette.path_colors),
+                    color=rng.choice(style.palette.path_colors),
                     order_display=OrderDisplay.NUMBER_TAG
                     if len(path.edges) > limit
                     else rng.choice((OrderDisplay.NUMBER_TAG, OrderDisplay.ARROW_COUNT)),
@@ -177,11 +186,11 @@ class SurfaceDiagramPlanner:
                     ):
                         edges_in_segment.append(edges_in_polygon[edge_index + 1])
                         continue
-                    segments.append(_RawPathSegment(-1, -1, tuple(edges_in_segment), segment_index))
+                    segments.append(_RawPathSegment(tuple(edges_in_segment), segment_index))
                     segment_index += 1
                     edges_in_segment = [edges_in_polygon[edge_index + 1]]
 
-                segments.append(_RawPathSegment(-1, -1, tuple(edges_in_segment), segment_index))
+                segments.append(_RawPathSegment(tuple(edges_in_segment), segment_index))
                 segment_index += 1
 
                 result.setdefault(polygon, []).append((tuple(segments), style))
@@ -248,17 +257,36 @@ class SurfaceDiagramPlanner:
 
         return result
 
-    def _get_polygon_layouts(
+    def _get_polygon_views(
         self,
         canvas_config: CanvasConfig,
-        selected_style: SelectedVisualStyle,
+        style: DiagramStyle,
         columns: int,
         surface: SurfacePresentation,
         rng: Random,
-    ) -> tuple[PolygonLayout, ...]:
-        layouts: list[PolygonLayout] = []
-        styled_paths = self._generate_styled_paths(selected_style, surface.paths, rng)
+    ) -> tuple[PolygonView, ...]:
+        views: list[PolygonView] = []
+        styled_paths = self._generate_styled_paths(style, surface.paths, rng)
         polygon_segment_groups = self._collect_segments_by_polygon(surface, styled_paths)
+
+        polygon_edges: dict[int, dict[int, EdgeView]] = {}
+
+        for index, gluing in enumerate(surface.gluings):
+            label = chr(ord("a") + index) if index < 26 else f"g{index - 25}"
+            first_orientation = rng.choice([True, False])
+            second_orientation = first_orientation == gluing.same_direction
+
+            edge_line_style = (
+                LineStyle.SOLID
+                if gluing.first.polygon == gluing.second.polygon
+                else LineStyle.DOTTED
+            )
+            polygon_edges.setdefault(gluing.first.polygon, {})[gluing.first.edge] = EdgeView(
+                edge_line_style, label, first_orientation
+            )
+            polygon_edges.setdefault(gluing.second.polygon, {})[gluing.second.edge] = EdgeView(
+                edge_line_style, label, second_orientation
+            )
 
         for index, polygon in enumerate(surface.polygons):
             sides = polygon.sides
@@ -282,16 +310,17 @@ class SurfaceDiagramPlanner:
                 (segment for group, _ in styled_groups_in_polygon for segment in group),
             )
 
-            layouts.append(
-                PolygonLayout(
-                    center_vec,
-                    vertices_vec,
-                    tuple(
+            views.append(
+                PolygonView(
+                    label=chr(ord("P") + index),
+                    center=center_vec,
+                    vertices=vertices_vec,
+                    edge_views=polygon_edges[index],
+                    homology_basis={},  # TODO
+                    path_segment_groups=tuple(
                         StyledSegmentsGroup(
                             tuple(
                                 PathSegment(
-                                    path_index=s.path_index,
-                                    polygon=s.polygon,
                                     edges=s.edges,
                                     order=s.order,
                                     geometry=geometry_of_segments[s],
@@ -305,4 +334,4 @@ class SurfaceDiagramPlanner:
                 )
             )
 
-        return tuple(layouts)
+        return tuple(views)
