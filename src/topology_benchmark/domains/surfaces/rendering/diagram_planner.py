@@ -38,7 +38,6 @@ class OrderDisplay(Enum):
 class DiagramStyle:
     visual: SurfaceVisualStyleConfig
     palette: PaletteConfig
-    boundary: LineStyle
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,17 +117,18 @@ class SurfaceDiagramPlanner:
         width = round(2 * canvas_config.margin_x + columns * canvas_config.cell_width)
         height = round(2 * canvas_config.margin_y + rows * canvas_config.cell_height)
 
-        styles_distribution = FiniteDistribution(
+        styles_distribution = FiniteDistribution[SurfaceVisualStyleConfig](
             tuple(WeightedValue(style, style.weight) for style in self._config.styles)
         )
         visual_style = styles_distribution.sample(rng)
 
-        layouts = self._get_polygon_views(canvas_config, visual_style, columns, surface, rng)
+        diagram_style = DiagramStyle(visual_style, rng.choice(visual_style.palettes))
+        layouts = self._get_polygon_views(canvas_config, diagram_style, columns, surface, rng)
         return DiagramPlan(
             width,
             height,
             layouts,
-            DiagramStyle(visual_style, rng.choice(visual_style.palettes), LineStyle.SOLID),
+            diagram_style,
         )
 
     @staticmethod
@@ -214,6 +214,9 @@ class SurfaceDiagramPlanner:
             (segment for segment in segments_in_polygon),
             key=key_selector,
         )
+        if len(ordered) == 0:
+            return {}
+
         result: dict[_RawPathSegment, PathSegmentGeometry] = {}
 
         for endpoints, segments_group in itertools.groupby(ordered, key_selector):
@@ -303,7 +306,7 @@ class SurfaceDiagramPlanner:
                 )
                 for side in range(sides)
             )
-            styled_groups_in_polygon = polygon_segment_groups[index]
+            styled_groups_in_polygon = polygon_segment_groups.get(index, [])
             geometry_of_segments = self._compute_geometry_for_segments(
                 center_vec,
                 vertices_vec,
@@ -315,7 +318,7 @@ class SurfaceDiagramPlanner:
                     label=chr(ord("P") + index),
                     center=center_vec,
                     vertices=vertices_vec,
-                    edge_views=polygon_edges[index],
+                    edge_views=polygon_edges.get(index, {}),
                     homology_basis={},  # TODO
                     path_segment_groups=tuple(
                         StyledSegmentsGroup(

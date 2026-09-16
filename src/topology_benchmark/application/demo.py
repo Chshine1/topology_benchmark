@@ -1,15 +1,17 @@
 import html
 import json
+import logging
 from dataclasses import asdict
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import override
 from urllib.parse import parse_qs, urlparse
 
 from topology_benchmark.application.catalog import BenchmarkCatalog
 from topology_benchmark.application.errors import BenchmarkApplicationError
 from topology_benchmark.core.errors import GenerationError
 from topology_benchmark.core.problem.models import GenerationRequest
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class DemoApplication:
@@ -88,10 +90,11 @@ def serve_demo(
                     self._send_error(HTTPStatus.BAD_REQUEST, str(error))
                     return
                 except GenerationError as error:
+                    _LOGGER.exception("Problem generation failed for %s", self.path)
                     self._send_error(HTTPStatus.SERVICE_UNAVAILABLE, str(error))
                     return
-                except Exception as error:
-                    self.log_error("problem generation failed: %s: %s", type(error).__name__, error)
+                except Exception:
+                    _LOGGER.exception("Problem generation failed for %s", self.path)
                     self._send_error(HTTPStatus.INTERNAL_SERVER_ERROR, "internal server error")
                     return
                 self._send(HTTPStatus.OK, "application/json; charset=utf-8", body)
@@ -113,12 +116,8 @@ def serve_demo(
                 json.dumps({"error": message}).encode(),
             )
 
-        @override
-        def log_message(self, format: str, *args: object) -> None:
-            del format, args
-
     server = ThreadingHTTPServer((host, port), Handler)
-    print(f"Topology Benchmark demo: http://{host}:{port}")
+    print(f"Topology Benchmark demo: http://{host}:{port}", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

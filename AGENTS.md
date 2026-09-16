@@ -60,6 +60,9 @@
   correctable request/configuration errors, HTTP adapters map known errors to status codes, and
   pipeline provider failures may become per-item results. Do not broadly classify internal
   `ValueError` failures as user input errors.
+- HTTP boundaries that catch operational or unexpected failures must log the exception with its
+  traceback before returning a server-error response. Keep console error logging visible even
+  when request logging is customized.
 - Publish each new multi-file run through a staging directory and move the completed directory
   into place atomically. Clean up staging data on failure, and keep collision behavior explicit so
   a reproducible run cannot be mistaken for a successful overwrite.

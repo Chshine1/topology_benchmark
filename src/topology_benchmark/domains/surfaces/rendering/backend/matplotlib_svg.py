@@ -45,7 +45,6 @@ class MatplotlibSurfaceRenderBackend(ISurfaceRenderBackend):
         self._draw_grid(axes, plan)
 
         labels = self._draw_polygons(axes, plan)
-        adjust_text(labels)
 
         output = io.StringIO()
         with rc_context({"svg.hashsalt": f"topology_benchmark:{request.seed}"}):
