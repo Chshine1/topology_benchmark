@@ -1,5 +1,5 @@
 generation:
-  profile_version: "surface-v9"
+  profile_version: "surface-v10"
   noise_probability: 0.075
   retry_limit: 250
   morphism_retry_limit: 40
@@ -233,56 +233,3 @@ rendering:
       arrows: *standard_arrows
       labels: *sans_labels
       grid: null
-
-    - id: pencil-study
-      backend: blender
-      blender_version: "5.2"
-      weight: 0.0
-      canvas_color: "#eee4ca"
-      palettes:
-        - fill: "#e5d8b8"
-          ink: "#292621"
-          path_colors: ["#31546a", "#87453c", "#53653c"]
-      stroke:
-        polygon_width: 2.0
-        path_width: 1.45
-        vertex_size: 10
-        dotted_pattern: [1.0, 2.8]
-        bevel_depth: 0.012
-      arrows: *standard_arrows
-      labels: *sans_labels
-      freestyle:
-        thickness: 1.25
-        rounds: 3
-        spatial_noise_amplitude: 2.0
-        spatial_noise_scale: 18.0
-      paper: {scale: 7.0, detail: 5.0, strength: 0.12}
-      hatching: null
-      curve_displacement: {amplitude: 0.018, scale: 5.0, samples: 48}
-
-    - id: ink-crosshatch
-      backend: blender
-      blender_version: "5.2"
-      weight: 0.0
-      canvas_color: "#f4edda"
-      palettes:
-        - fill: "#e9ddbf"
-          ink: "#201f1b"
-          path_colors: ["#8b2635", "#1f5f61", "#725a24"]
-      stroke:
-        polygon_width: 1.8
-        path_width: 1.35
-        vertex_size: 9
-        dotted_pattern: [0.8, 2.4]
-        bevel_depth: 0.010
-      arrows: *standard_arrows
-      labels: *sans_labels
-      freestyle: null
-      paper: {scale: 9.0, detail: 3.0, strength: 0.08}
-      hatching:
-        scale: 12.0
-        width: 0.14
-        angle_degrees: 24.0
-        cross_angle_degrees: 112.0
-        strength: 0.62
-      curve_displacement: {amplitude: 0.003, scale: 8.0, samples: 48}

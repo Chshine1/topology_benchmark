@@ -297,9 +297,9 @@ pixi run -e dev python -m topology_benchmark `
 
 ## Surface visual styles and SVG representation
 
-`SurfaceLayoutComputer` converts combinatorial objects into a graphics-library-neutral diagram
-plan. A `SurfaceVisualStyleSelector` independently samples one complete, weighted visual profile,
-and `MatplotlibGluingDiagramRenderer` serializes the resulting plan as SVG. Visual choices use a
+`SurfaceDiagramPlanner` converts combinatorial objects into a graphics-library-neutral diagram
+plan. The planner independently samples one complete, weighted visual profile,
+and `MatplotlibSurfaceRenderBackend` serializes the resulting plan as SVG. Visual choices use a
 renderer-specific stream derived from the problem seed and never enter the mathematical object.
 
 The shipped profiles exercise materially different visual grammars rather than only geometry:
@@ -308,15 +308,6 @@ The shipped profiles exercise materially different visual grammars rather than o
 - `hand-drawn` uses a paper canvas, construction grid, irregular strokes, and earthy inks;
 - `blueprint` uses a dark drafting canvas, major/minor grid lines, cyan linework, and mono labels;
 - `neon` uses a near-black canvas and layered luminous strokes.
-- `pencil-study` uses Blender Geometry Nodes displacement, procedural paper, and Freestyle pencil
-  contours;
-- `ink-crosshatch` uses Blender procedural materials to clip two hatch directions to polygon faces.
-
-The two Blender profiles ship with zero weight. They are available and validated, but the default
-deployment remains independent of an external Blender installation. Enable them by assigning
-positive weights—and reducing or zeroing SVG style weights as desired—in a complete copy of the
-surface-domain YAML document.
-
 Style selection is a `FiniteDistribution` over typed profiles. A new SVG style is normally a YAML
 addition: give it a stable ID, weight, complete palette/stroke/arrow/label policy, and an explicit
 grid value. Generic effects such as sketching and glow are renderer primitives; the renderer never
@@ -356,36 +347,6 @@ rendering:
 ```python
 container = build_container(surface_config="my-surfaces.yaml")
 ```
-
-### Blender rendering
-
-`BlenderSurfaceRenderBackend` consumes the same deterministic diagram plan as the SVG backend and
-invokes a repository-owned scene script with Blender's background mode. The scene uses an
-orthographic camera, Eevee emission materials, and no lights. Geometry Nodes resample and apply
-seeded spatial displacement to mathematical curves; procedural shader nodes produce paper grain and
-face-clipped crosshatching; the pencil profile adds Freestyle sketch chaining and spatial noise. The
-result is returned as base64 PNG at the question boundary and persisted as actual binary PNG data by
-the dataset artifact store.
-
-The executable and timeout are environment-specific composition inputs:
-
-```powershell
-pixi run -e dev python -m topology_benchmark `
-  --surface-config my-blender-surfaces.yaml `
-  --blender-executable D:\blender\blender.exe `
-  --blender-timeout-seconds 120 `
-  --seed 42 --difficulty 8
-```
-
-Blender remains a realization backend, not a source of topology. Gluing correspondence, path order,
-visibility policy, and label anchors are fixed before scene construction. Blender owns operations
-such as curve evaluation, displacement, materials, hatching masks, and backend geometry. A future
-embedded-surface representation should add an explicit mathematical realization policy rather than
-infer an arbitrary smooth surface from the polygon quotient.
-
-One process is currently launched per rendered section, which favors isolation and simple failure
-recovery. Large Blender-heavy datasets should eventually use a batch worker that retains the same
-scene-document boundary while amortizing process and asset startup.
 
 ## Architecture and extension points
 

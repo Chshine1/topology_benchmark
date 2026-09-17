@@ -48,7 +48,6 @@ project-includes = ["src", "tests"]
 project-excludes = [
     "**/__pycache__",
     ".pixi",
-    "src/topology_benchmark/domains/surfaces/rendering/backend/blender_scene.py",
 ]
 python-version = "3.14"
 python-interpreter-path = ".pixi/envs/dev/python.exe"

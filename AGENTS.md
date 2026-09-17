@@ -119,7 +119,7 @@
   Model style prevalence as a finite distribution over complete typed profiles, and implement
   reusable visual effects as backend primitives rather than branching on style IDs. Treat a 3D
   realization as an explicit representation policy; do not infer one from combinatorial data merely
-  to decorate it with a Blender backend.
+  to decorate it with a rendering backend.
 - Run automatic Matplotlib label adjustment only after every artist is present. Represent curved or
   nonrectangular collision geometry with sampled points rather than whole-artist bounding boxes,
   which forbid large areas that contain no visible stroke.
@@ -200,6 +200,9 @@
 - Keep domain problem-recipe implementations in a `recipes/` package. Put their shared lifecycle
   in `base.py` and group concrete recipes into subject- or feature-named modules; do not collect a
   recipe family in a generic `question.py` module or retain the obsolete `questions/` package name.
+- When removing a capability, remove its configuration variants, registrations, CLI inputs,
+  tooling exceptions, and documentation together; simplify selection boundaries that no longer
+  have multiple implementations.
 - Do not preserve obsolete import modules, renamed-symbol aliases, forwarding properties, or
   test-only helpers in production solely for backward compatibility. Update repository callers
   to the canonical API and remove the legacy surface; keep specialized fixtures in tests.

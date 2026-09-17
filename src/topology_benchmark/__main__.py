@@ -33,25 +33,12 @@ def main() -> None:
     parser.add_argument("--surface-config", help="complete surface-domain YAML configuration")
     parser.add_argument("--polyhedral-config", help="complete polyhedral-domain YAML configuration")
     parser.add_argument("--torus-config", help="complete torus-domain YAML configuration")
-    parser.add_argument(
-        "--blender-executable",
-        default="blender",
-        help="Blender executable used by enabled Blender surface styles",
-    )
-    parser.add_argument(
-        "--blender-timeout-seconds",
-        type=float,
-        default=120.0,
-        help="maximum time for one Blender surface render",
-    )
     args = parser.parse_args()
     try:
         container = build_container(
             surface_config=args.surface_config or SURFACE_DOMAIN_CONFIG,
             polyhedral_config=args.polyhedral_config or POLYHEDRAL_DOMAIN_CONFIG,
             torus_config=args.torus_config or TORUS_DOMAIN_CONFIG,
-            blender_executable=args.blender_executable,
-            blender_timeout_seconds=args.blender_timeout_seconds,
         )
     except (OSError, ConfigurationError, ValidationError, yaml.YAMLError) as error:
         parser.error(str(error))

@@ -2,7 +2,7 @@ from typing import Annotated, Literal, Self
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, model_validator
 
-from topology_benchmark.utils.matplotlib import SketchConfig, ArrowConfig, GlowLayerConfig
+from topology_benchmark.utils.matplotlib import ArrowConfig, GlowLayerConfig, SketchConfig
 
 
 def _yaml_tuple(value: object) -> object:
@@ -95,7 +95,10 @@ class GridConfig(_StrictConfigModel):
     major_every: int = Field(ge=1)
 
 
-class _SurfaceVisualStyleConfig(_StrictConfigModel):
+class SurfaceVisualStyleConfig(_StrictConfigModel):
+    backend: Literal["matplotlib-svg"]
+    stroke: StrokeConfig
+    grid: GridConfig | None
     id: str = Field(pattern=r"^[a-z][a-z0-9-]*$")
     weight: float = Field(ge=0)
     canvas_color: str = Field(min_length=1)
@@ -108,59 +111,6 @@ class _SurfaceVisualStyleConfig(_StrictConfigModel):
         if not self.palettes:
             raise ValueError("each visual style needs at least one palette")
         return self
-
-
-class MatplotlibVisualStyleConfig(_SurfaceVisualStyleConfig):
-    backend: Literal["matplotlib-svg"]
-    stroke: StrokeConfig
-    grid: GridConfig | None
-
-
-class BlenderStrokeConfig(_CommonStrokeConfig):
-    bevel_depth: float = Field(gt=0)
-
-
-class FreestyleConfig(_StrictConfigModel):
-    thickness: float = Field(gt=0)
-    rounds: int = Field(ge=1)
-    spatial_noise_amplitude: float = Field(ge=0)
-    spatial_noise_scale: float = Field(gt=0)
-
-
-class PaperTextureConfig(_StrictConfigModel):
-    scale: float = Field(gt=0)
-    detail: float = Field(ge=0)
-    strength: float = Field(ge=0, le=1)
-
-
-class HatchingConfig(_StrictConfigModel):
-    scale: float = Field(gt=0)
-    width: float = Field(gt=0, lt=0.5)
-    angle_degrees: float
-    cross_angle_degrees: float
-    strength: float = Field(gt=0, le=1)
-
-
-class CurveDisplacementConfig(_StrictConfigModel):
-    amplitude: float = Field(ge=0)
-    scale: float = Field(gt=0)
-    samples: int = Field(ge=2)
-
-
-class BlenderVisualStyleConfig(_SurfaceVisualStyleConfig):
-    backend: Literal["blender"]
-    blender_version: str = Field(pattern=r"^[0-9]+\.[0-9]+$")
-    stroke: BlenderStrokeConfig
-    freestyle: FreestyleConfig | None
-    paper: PaperTextureConfig
-    hatching: HatchingConfig | None
-    curve_displacement: CurveDisplacementConfig | None
-
-
-type SurfaceVisualStyleConfig = Annotated[
-    MatplotlibVisualStyleConfig | BlenderVisualStyleConfig,
-    Field(discriminator="backend"),
-]
 
 
 class SurfaceRenderingConfig(_StrictConfigModel):

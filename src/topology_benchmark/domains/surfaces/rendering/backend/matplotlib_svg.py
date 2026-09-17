@@ -1,4 +1,3 @@
-from topology_benchmark.domains.surfaces.rendering.diagram_planner import PathSegment, PathStyle
 import io
 from typing import override
 
@@ -12,15 +11,17 @@ from matplotlib.patches import Polygon as PolygonPatch
 from topology_benchmark.core.problem.models import GenerationRequest, QuestionSection
 from topology_benchmark.domains.surfaces.abstractions import ISurfaceRenderBackend
 from topology_benchmark.domains.surfaces.models import SurfacePresentation
-from topology_benchmark.domains.surfaces.rendering.config import MatplotlibVisualStyleConfig
-from topology_benchmark.domains.surfaces.rendering.diagram_planner import DiagramPlan
-from topology_benchmark.domains.surfaces.rendering.diagram_planner import EdgeView
+from topology_benchmark.domains.surfaces.rendering.config import SurfaceVisualStyleConfig
 from topology_benchmark.domains.surfaces.rendering.diagram_planner import (
+    DiagramPlan,
+    EdgeView,
     LineStyle,
     OrderDisplay,
+    PathSegment,
+    PathStyle,
 )
-from topology_benchmark.utils.matplotlib import plot_stroke, draw_arrows_for_curve, apply_sketch
-from topology_benchmark.utils.planer_vector import unit, Point
+from topology_benchmark.utils.matplotlib import apply_sketch, draw_arrows_for_curve, plot_stroke
+from topology_benchmark.utils.planer_vector import Point, unit
 
 
 class MatplotlibSurfaceRenderBackend(ISurfaceRenderBackend):
@@ -31,7 +32,7 @@ class MatplotlibSurfaceRenderBackend(ISurfaceRenderBackend):
         plan: DiagramPlan,
         request: GenerationRequest,
     ) -> QuestionSection:
-        visual_style = self._get_compatible_visual_style(plan)
+        visual_style = plan.style.visual
         figure = Figure(
             figsize=(plan.width / 72, plan.height / 72),
             dpi=72,
@@ -71,7 +72,7 @@ class MatplotlibSurfaceRenderBackend(ISurfaceRenderBackend):
 
     @classmethod
     def _draw_grid(cls, axes: Axes, plan: DiagramPlan) -> None:
-        grid_config = cls._get_compatible_visual_style(plan).grid
+        grid_config = plan.style.visual.grid
         if grid_config is None:
             return
         for axis_limit, vertical in ((plan.width, True), (plan.height, False)):
@@ -101,7 +102,7 @@ class MatplotlibSurfaceRenderBackend(ISurfaceRenderBackend):
                 index += 1
 
     def _draw_polygons(self, axes: Axes, plan: DiagramPlan) -> None:
-        visual_style = self._get_compatible_visual_style(plan)
+        visual_style = plan.style.visual
         palette = plan.style.palette
         ink = palette.ink
         for polygon_view in plan.polygon_views:
@@ -174,7 +175,7 @@ class MatplotlibSurfaceRenderBackend(ISurfaceRenderBackend):
         end: Point,
         center: Point,
         glued_edge_view: EdgeView | None,
-        visual_style: MatplotlibVisualStyleConfig,
+        visual_style: SurfaceVisualStyleConfig,
         ink: str,
     ) -> None:
         line_style: str | tuple[int, tuple[float, ...]] = (
@@ -227,7 +228,7 @@ class MatplotlibSurfaceRenderBackend(ISurfaceRenderBackend):
         end: Point,
         center: Point,
         basis_label: str,
-        visual_style: MatplotlibVisualStyleConfig,
+        visual_style: SurfaceVisualStyleConfig,
         color: str,
     ) -> None:
         midpoint = ((start[0] + end[0]) / 2, (start[1] + end[1]) / 2)
@@ -278,7 +279,7 @@ class MatplotlibSurfaceRenderBackend(ISurfaceRenderBackend):
         axes: Axes,
         segment: PathSegment,
         path_style: PathStyle,
-        visual_style: MatplotlibVisualStyleConfig,
+        visual_style: SurfaceVisualStyleConfig,
     ) -> None:
         x_values, y_values = zip(*segment.geometry.points, strict=True)
         plot_stroke(
@@ -302,12 +303,3 @@ class MatplotlibSurfaceRenderBackend(ISurfaceRenderBackend):
             visual_style.arrows,
             visual_style.stroke.sketch,
         )
-
-    @staticmethod
-    def _get_compatible_visual_style(plan: DiagramPlan) -> MatplotlibVisualStyleConfig:
-        visual_style = plan.style.visual
-        if not isinstance(visual_style, MatplotlibVisualStyleConfig):
-            raise ValueError(
-                f"the Matplotlib backend cannot render {visual_style.backend!r} styles"
-            )
-        return visual_style
