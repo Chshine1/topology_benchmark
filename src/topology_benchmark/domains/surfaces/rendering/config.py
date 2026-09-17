@@ -2,6 +2,8 @@ from typing import Annotated, Literal, Self
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, model_validator
 
+from topology_benchmark.utils.matplotlib import SketchConfig, ArrowConfig, GlowLayerConfig
+
 
 def _yaml_tuple(value: object) -> object:
     return tuple(value) if isinstance(value, list) else value
@@ -34,17 +36,6 @@ class GeometryConfig(_StrictConfigModel):
     curvature: CurvatureConfig
 
 
-class SketchConfig(_StrictConfigModel):
-    scale: float = Field(gt=0)
-    length: float = Field(gt=0)
-    randomness: float = Field(gt=0)
-
-
-class GlowLayerConfig(_StrictConfigModel):
-    width_factor: float = Field(gt=1)
-    alpha: float = Field(gt=0, le=1)
-
-
 class _CommonStrokeConfig(_StrictConfigModel):
     polygon_width: float = Field(gt=0)
     path_width: float = Field(gt=0)
@@ -69,21 +60,6 @@ class StrokeConfig(_CommonStrokeConfig):
         widths = tuple(layer.width_factor for layer in self.glow_layers)
         if tuple(sorted(widths, reverse=True)) != widths:
             raise ValueError("glow layers must be ordered from widest to narrowest")
-        return self
-
-
-class ArrowConfig(_StrictConfigModel):
-    gluing_size: float = Field(gt=0)
-    path_size: float = Field(gt=0)
-    path_count_limit: int = Field(ge=1)
-    spread_start: float = Field(ge=0, le=1)
-    spread_end: float = Field(ge=0, le=1)
-    tangent_span: float = Field(gt=0)
-
-    @model_validator(mode="after")
-    def _spread_is_ordered(self) -> Self:
-        if self.spread_start > self.spread_end:
-            raise ValueError("visual style arrow spread_start must not exceed spread_end")
         return self
 
 
