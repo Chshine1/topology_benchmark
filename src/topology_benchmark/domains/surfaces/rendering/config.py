@@ -2,7 +2,7 @@ from typing import Annotated, Literal, Self
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, model_validator
 
-from topology_benchmark.utils.matplotlib import ArrowConfig, GlowLayerConfig, SketchConfig
+from topology_benchmark.utils.matplotlib import ArrowControlConfig, GlowLayerConfig, SketchConfig
 
 
 def _yaml_tuple(value: object) -> object:
@@ -95,6 +95,13 @@ class GridConfig(_StrictConfigModel):
     major_every: int = Field(ge=1)
 
 
+class _ArrowConfig(_StrictConfigModel):
+    gluing_size: float = Field(gt=0)
+    path_size: float = Field(gt=0)
+    path_count_limit: int = Field(ge=1)
+    control: ArrowControlConfig
+
+
 class SurfaceVisualStyleConfig(_StrictConfigModel):
     backend: Literal["matplotlib-svg"]
     stroke: StrokeConfig
@@ -103,7 +110,7 @@ class SurfaceVisualStyleConfig(_StrictConfigModel):
     weight: float = Field(ge=0)
     canvas_color: str = Field(min_length=1)
     palettes: YamlTuple[PaletteConfig]
-    arrows: ArrowConfig
+    arrows: _ArrowConfig
     labels: LabelConfig
 
     @model_validator(mode="after")

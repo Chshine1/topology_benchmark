@@ -89,6 +89,13 @@
 - Concrete classes that intentionally implement a repository protocol should inherit that
   protocol explicitly. This makes the architectural relationship searchable and lets static
   analysis validate the implementation at its declaration.
+- Pydantic model adapters may implement protocols structurally when their metaclasses conflict.
+  Verify that boundary with a typed protocol assignment in tests rather than coupling to private
+  metaclasses. Keep casts for dynamically registered Pydantic validator descriptors localized to
+  the registration boundary. Skip field validation only for private adapter fields whose values
+  are constructed and fully validated by the adapter's input validator; keep external inputs
+  validated. Expose capability types and use TypeAdapter at Pydantic parsing boundaries when the
+  concrete model is intentionally private.
 - Keep protocols only for active boundaries with consumers. Remove unused speculative protocols
   and their implementations instead of registering or maintaining them for possible future use.
 - Prefer concrete unions or shared data models when code needs the complete variants and no

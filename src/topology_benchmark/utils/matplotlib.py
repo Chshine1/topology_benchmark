@@ -12,10 +12,7 @@ class _StrictConfigModel(BaseModel):
     model_config = ConfigDict(frozen=True, strict=True, extra="forbid", allow_inf_nan=False)
 
 
-class ArrowConfig(_StrictConfigModel):
-    gluing_size: float = Field(gt=0)
-    path_size: float = Field(gt=0)
-    path_count_limit: int = Field(ge=1)
+class ArrowControlConfig(_StrictConfigModel):
     spread_start: float = Field(ge=0, le=1)
     spread_end: float = Field(ge=0, le=1)
     tangent_span: float = Field(gt=0)
@@ -54,13 +51,13 @@ def draw_arrows_for_curve(
     color: str,
     count: int,
     mutation_scale: float,
-    arrow_config: ArrowConfig,
+    arrow_control_config: ArrowControlConfig,
     sketch_config: SketchConfig | None,
 ) -> None:
     for index in range(count):
-        start, end = arrow_config.spread_start, arrow_config.spread_end
+        start, end = arrow_control_config.spread_start, arrow_control_config.spread_end
         fraction = (start + end) / 2 if count == 1 else start + index * (end - start) / (count - 1)
-        span = arrow_config.tangent_span
+        span = arrow_control_config.tangent_span
         previous = point_at_fraction(curve, max(0.0, fraction - span))
         point = point_at_fraction(curve, min(1.0, fraction + span))
         arrow = FancyArrowPatch(

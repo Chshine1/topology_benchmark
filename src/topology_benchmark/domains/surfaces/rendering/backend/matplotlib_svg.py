@@ -203,7 +203,7 @@ class MatplotlibSurfaceRenderBackend(ISurfaceRenderBackend):
             ink,
             1,
             visual_style.arrows.gluing_size,
-            visual_style.arrows,
+            visual_style.arrows.control,
             visual_style.stroke.sketch,
         )
         midpoint = ((start[0] + end[0]) / 2, (start[1] + end[1]) / 2)
@@ -300,6 +300,6 @@ class MatplotlibSurfaceRenderBackend(ISurfaceRenderBackend):
             path_style.color,
             arrow_count,
             visual_style.arrows.path_size,
-            visual_style.arrows,
+            visual_style.arrows.control,
             visual_style.stroke.sketch,
         )

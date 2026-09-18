@@ -132,9 +132,10 @@ rendering:
         gluing_size: 18
         path_size: 13
         path_count_limit: 4
-        spread_start: 0.22
-        spread_end: 0.78
-        tangent_span: 0.045
+        control:
+          spread_start: 0.22
+          spread_end: 0.78
+          tangent_span: 0.045
       labels: &sans_labels
         polygon_size: 13
         gluing_size: 10
