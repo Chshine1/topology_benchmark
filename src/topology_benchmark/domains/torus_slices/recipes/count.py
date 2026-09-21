@@ -2,7 +2,6 @@ from typing import override
 
 from topology_benchmark.core.probability.distribution import (
     FiniteDistribution,
-    WeightedValue,
 )
 from topology_benchmark.core.problem.models import GenerationRequest
 from topology_benchmark.domains.torus_slices.abstractions import (
@@ -21,6 +20,7 @@ from topology_benchmark.domains.torus_slices.recipes.base import TorusProblemRec
 from topology_benchmark.domains.torus_slices.services.torus_family_analyzer import (
     TorusFamilyAnalyzer,
 )
+from topology_benchmark.utils.distribution_model import finite_distribution_from_config
 
 
 class TorusCountProblemRecipe(TorusProblemRecipe):
@@ -45,18 +45,14 @@ class TorusCountProblemRecipe(TorusProblemRecipe):
         maximum = (
             self.config.easy_maximum if request.difficulty <= 3 else self.config.standard_maximum
         )
-        return FiniteDistribution(
-            tuple(
-                WeightedValue(condition, weight)
-                for count in range(1, maximum + 1)
-                for condition, weight in (
-                    ((UnlinkedTorusFamily(count), 1.0),)
-                    if count == 1
-                    else (
-                        (UnlinkedTorusFamily(count), 1 - self.config.linked_probability),
-                        (PairLinkedTorusFamily(count), self.config.linked_probability),
-                    )
-                )
+        counts = FiniteDistribution.weighted((count, 1.0) for count in range(1, maximum + 1))
+        return counts.bind(
+            lambda count: FiniteDistribution.concentrated(UnlinkedTorusFamily(count))
+            if count == 1
+            else finite_distribution_from_config(self.config.families).map(
+                lambda family: PairLinkedTorusFamily(count)
+                if family.linking == "pair-linked"
+                else UnlinkedTorusFamily(count)
             )
         )
 

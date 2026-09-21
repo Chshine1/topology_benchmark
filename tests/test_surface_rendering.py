@@ -1,7 +1,8 @@
 from random import Random
+from typing import Any, cast
 
 import pytest
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
 
 from topology_benchmark import build_container
 from topology_benchmark.application.configuration import SURFACE_DOMAIN_CONFIG
@@ -18,7 +19,10 @@ from topology_benchmark.domains.surfaces.generation.context.object import (
 from topology_benchmark.domains.surfaces.rendering.backend.matplotlib_svg import (
     MatplotlibSurfaceRenderBackend,
 )
-from topology_benchmark.domains.surfaces.rendering.config import SurfaceVisualStyleConfig
+from topology_benchmark.domains.surfaces.rendering.config import (
+    SurfaceVisualStyleConfig,
+    SurfaceVisualStyleDistribution,
+)
 from topology_benchmark.domains.surfaces.rendering.diagram_planner import SurfaceDiagramPlanner
 
 
@@ -26,14 +30,19 @@ from topology_benchmark.domains.surfaces.rendering.diagram_planner import Surfac
 def test_surface_styles_render_reproducible_svg(style_id: str) -> None:
     container = build_container()
     config = load_surface_domain_config(SURFACE_DOMAIN_CONFIG)
-    assert {style.id for style in config.rendering.styles} == {
+    styles_model = cast(Any, config.rendering.styles)
+    styles = tuple(item.value for item in styles_model.distribution.values)
+    assert {style.id for style in styles} == {
         "classic",
         "hand-drawn",
         "blueprint",
         "neon",
     }
-    style = next(style for style in config.rendering.styles if style.id == style_id)
-    rendering = config.rendering.model_copy(update={"styles": (style,)})
+    style = next(style for style in styles if style.id == style_id)
+    selected_styles = TypeAdapter(SurfaceVisualStyleDistribution).validate_python(
+        [{**style.model_dump(), "$weight": 1.0}]
+    )
+    rendering = config.rendering.model_copy(update={"styles": selected_styles})
     planner = SurfaceDiagramPlanner(rendering)
     backend = container.resolve(ISurfaceRenderBackend)
     assert isinstance(backend, MatplotlibSurfaceRenderBackend)
@@ -54,7 +63,23 @@ def test_surface_styles_render_reproducible_svg(style_id: str) -> None:
 
 def test_surface_style_rejects_unsupported_backend() -> None:
     config = load_surface_domain_config(SURFACE_DOMAIN_CONFIG)
-    document = config.rendering.styles[0].model_dump()
+    styles_model = cast(Any, config.rendering.styles)
+    document = styles_model.distribution.values[0].value.model_dump()
     document["backend"] = "unsupported"
     with pytest.raises(ValidationError, match="backend"):
         SurfaceVisualStyleConfig.model_validate(document)
+
+
+def test_surface_styles_and_palettes_are_configured_distributions() -> None:
+    rendering = load_surface_domain_config(SURFACE_DOMAIN_CONFIG).rendering
+
+    styles_model = cast(Any, rendering.styles)
+    assert styles_model.distribution.probability(lambda style: style.id == "neon") == pytest.approx(
+        0.2
+    )
+    classic = next(
+        item.value for item in styles_model.distribution.values if item.value.id == "classic"
+    )
+    assert classic.palettes.distribution.probability(
+        lambda palette: palette.fill == "#f8f5ed"
+    ) == pytest.approx(1 / 3)

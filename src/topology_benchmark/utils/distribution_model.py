@@ -2,7 +2,14 @@ from collections.abc import Callable
 from random import Random
 from typing import Any, cast
 
-from pydantic import BaseModel, ConfigDict, SkipValidation, create_model, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    SkipValidation,
+    create_model,
+    model_serializer,
+    model_validator,
+)
 
 from topology_benchmark.core.probability.distribution import FiniteDistribution, IDistribution
 
@@ -19,6 +26,12 @@ class _FinitelyDistributedConfig[T: BaseModel](BaseModel):
 
     def sample(self, rng: Random) -> T:
         return self.distribution.sample(rng)
+
+    @model_serializer
+    def _serialize_weighted_values(self) -> list[dict[str, Any]]:
+        return [
+            {**item.value.model_dump(), "$weight": item.weight} for item in self.distribution.values
+        ]
 
 
 def _get_transform_validator[T: BaseModel](
@@ -63,3 +76,10 @@ def create_distribution_model[T: BaseModel](
             "distribution_validator": cast(Callable[..., Any], validator),
         },
     )
+
+
+def finite_distribution_from_config[T](config: IDistribution[T], /) -> FiniteDistribution[T]:
+    """Expose the exact law of a model produced by create_distribution_model."""
+    if not isinstance(config, _FinitelyDistributedConfig):
+        raise TypeError("the distribution was not created by create_distribution_model")
+    return config.distribution

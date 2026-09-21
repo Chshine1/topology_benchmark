@@ -1,93 +1,33 @@
-from topology_benchmark.core.structures.disjoint_set import DisjointSet
 from topology_benchmark.domains.surfaces.models import (
     CellularHomology,
-    ComponentFacts,
-    EdgeGluing,
     EdgeRef,
     SurfaceFacts,
-    SurfacePath,
     SurfacePresentation,
 )
-from topology_benchmark.domains.surfaces.services.integer_linear_algebra import (
-    smith_normal_form,
-    unimodular_inverse,
+from topology_benchmark.domains.surfaces.models.object import OrientedEdge
+from topology_benchmark.domains.surfaces.services.surface_basic_topology_analyzer import (
+    SurfaceBasicTopologyAnalyzer,
 )
+from topology_benchmark.domains.surfaces.services.surface_homology_analyzer import (
+    SurfaceHomologyAnalyzer,
+)
+from topology_benchmark.utils.disjoint_set_union import DisjointSetUnion
 
 
 class SurfaceAnalyzer:
-    def analyze(self, surface: SurfacePresentation) -> SurfaceFacts:
-        offsets, vertex_dsu, polygon_dsu = self._quotient(surface)
-        self._validate_vertex_links(surface, vertex_dsu)
-        groups: dict[int, list[int]] = {}
-        for polygon in range(len(surface.polygons)):
-            groups.setdefault(polygon_dsu.find(polygon), []).append(polygon)
-        components = tuple(
-            sorted(
-                (
-                    self._component_facts(surface, offsets, vertex_dsu, tuple(group))
-                    for group in groups.values()
-                ),
-                key=lambda facts: facts.polygons[0],
-            )
-        )
-        vertices = {vertex_dsu.find(vertex) for vertex in range(offsets[-1])}
-        edges = sum(polygon.sides for polygon in surface.polygons) - len(surface.gluings)
-        return SurfaceFacts(components, len(vertices), edges, len(surface.polygons))
-
-    def cellular_homology(self, surface: SurfacePresentation) -> CellularHomology:
-        facts = self.analyze(surface)
-        offsets, vertex_dsu, _ = self._quotient(surface)
-        edge_basis, occurrence = self._quotient_edges(surface)
-        vertex_roots = sorted({vertex_dsu.find(vertex) for vertex in range(offsets[-1])})
-        vertex_index = {root: index for index, root in enumerate(vertex_roots)}
-
-        endpoints: list[tuple[int, int]] = []
-        for edge in edge_basis:
-            start, end = surface.native_edge_vertices(edge, offsets)
-            endpoints.append(
-                (vertex_index[vertex_dsu.find(start)], vertex_index[vertex_dsu.find(end)])
-            )
-
-        forest = DisjointSet(len(vertex_roots))
-        chords: list[int] = []
-        for index, (start, end) in enumerate(endpoints):
-            if not forest.union(start, end):
-                chords.append(index)
-        # In a graph, chord coefficients are coordinates in its fundamental-cycle basis.
-        cycle_basis = tuple(self._edge_name(edge_basis[index]) for index in chords)
-        relations: list[tuple[int, ...]] = []
-        for polygon_index, polygon in enumerate(surface.polygons):
-            chain = [0] * len(edge_basis)
-            for side in range(polygon.sides):
-                quotient_edge, sign = occurrence[EdgeRef(polygon_index, side)]
-                chain[quotient_edge] += sign
-            relations.append(tuple(chain[index] for index in chords))
-
-        relation_matrix = [list(row) for row in zip(*relations, strict=False)]
-        smith, coordinate_map = smith_normal_form(relation_matrix, len(chords))
-        inverse_map = unimodular_inverse(coordinate_map)
-        smith_basis = tuple(tuple(column) for column in zip(*inverse_map, strict=False))
-        nonzero = tuple(value for value in smith if value)
-        torsion = tuple(value for value in nonzero if value > 1)
-        h1_rank = len(chords) - len(nonzero)
-        return CellularHomology(
-            tuple(edge_basis),
-            cycle_basis,
-            tuple(relations),
-            smith,
-            smith_basis,
-            coordinate_map,
-            len(facts.components),
-            h1_rank,
-            torsion,
-            sum(c.orientable and c.boundary_components == 0 for c in facts.components),
-        )
+    @staticmethod
+    def analyze(surface: SurfacePresentation) -> SurfaceFacts:
+        return SurfaceBasicTopologyAnalyzer().analyze(surface)
 
     @staticmethod
-    def path_is_cycle(surface: SurfacePresentation, path: SurfacePath) -> bool:
+    def cellular_homology(surface: SurfacePresentation) -> CellularHomology:
+        return SurfaceHomologyAnalyzer(SurfaceBasicTopologyAnalyzer()).cellular_homology(surface)
+
+    @staticmethod
+    def path_is_cycle(surface: SurfacePresentation, path: tuple[OrientedEdge, ...]) -> bool:
         quotient = surface.quotient_vertices()
-        return surface.path_endpoint(path.edges[0], True, quotient) == surface.path_endpoint(
-            path.edges[-1], False, quotient
+        return surface.path_endpoint(path[0], True, quotient) == surface.path_endpoint(
+            path[-1], False, quotient
         )
 
     def path_representative(
@@ -129,9 +69,6 @@ class SurfaceAnalyzer:
             )
         )
 
-    def cycle_basis(self, surface: SurfacePresentation) -> tuple[str, ...]:
-        return self.cellular_homology(surface).cycle_basis
-
     @staticmethod
     def _tree_path(
         start: int, end: int, adjacency: dict[int, list[tuple[int, int, bool]]]
@@ -167,18 +104,20 @@ class SurfaceAnalyzer:
     ) -> tuple[tuple[int, ...], ...]:
         """The graph-cycle basis expressed as oriented quotient-edge chains."""
 
-        offsets, vertex_dsu, _ = self._quotient(surface)
+        vertex_dsu, _ = surface.quotient
         edge_basis, _ = self._quotient_edges(surface)
-        vertex_roots = sorted({vertex_dsu.find(vertex) for vertex in range(offsets[-1])})
+        vertex_roots = sorted(
+            {vertex_dsu.find(vertex) for vertex in range(surface.vertex_offsets[-1])}
+        )
         vertex_index = {root: index for index, root in enumerate(vertex_roots)}
         endpoints = []
         for edge in edge_basis:
-            start, end = surface.native_edge_vertices(edge, offsets)
+            start, end = surface.native_edge_vertices(edge)
             endpoints.append(
                 (vertex_index[vertex_dsu.find(start)], vertex_index[vertex_dsu.find(end)])
             )
 
-        forest = DisjointSet(len(vertex_roots))
+        forest = DisjointSetUnion(len(vertex_roots))
         adjacency: dict[int, list[tuple[int, int, bool]]] = {
             vertex: [] for vertex in range(len(vertex_roots))
         }
@@ -265,153 +204,6 @@ class SurfaceAnalyzer:
             if value != 1
         )
 
-    def _component_facts(
-        self,
-        surface: SurfacePresentation,
-        offsets: tuple[int, ...],
-        vertex_dsu: DisjointSet,
-        polygons: tuple[int, ...],
-    ) -> ComponentFacts:
-        polygon_set = set(polygons)
-        vertices = {
-            vertex_dsu.find(offsets[p] + v)
-            for p in polygons
-            for v in range(surface.polygons[p].sides)
-        }
-        boundary = [edge for edge in surface.unglued_edges if edge.polygon in polygon_set]
-        boundary_count = self._boundary_count(surface, offsets, vertex_dsu, boundary)
-        paired = sum(gluing.first.polygon in polygon_set for gluing in surface.gluings)
-        chi = len(vertices) - paired - len(boundary) + len(polygons)
-        orientable = self._is_orientable(surface.gluings, polygon_set)
-        numerator = 2 - boundary_count - chi
-        if orientable:
-            if numerator < 0 or numerator % 2:
-                raise ValueError("edge quotient is not a compact orientable surface")
-            genus = numerator // 2
-        else:
-            if numerator <= 0:
-                raise ValueError("edge quotient is not a compact non-orientable surface")
-            genus = numerator
-        return ComponentFacts(polygons, orientable, chi, boundary_count, genus)
-
-    @staticmethod
-    def _quotient(surface: SurfacePresentation) -> tuple[tuple[int, ...], DisjointSet, DisjointSet]:
-        offsets = surface.vertex_offsets()
-        vertices = DisjointSet(offsets[-1])
-        polygons = DisjointSet(len(surface.polygons))
-        for gluing in surface.gluings:
-            polygons.union(gluing.first.polygon, gluing.second.polygon)
-            a0, a1 = surface.native_edge_vertices(gluing.first, offsets)
-            b0, b1 = surface.native_edge_vertices(gluing.second, offsets)
-            if gluing.same_direction:
-                vertices.union(a0, b0)
-                vertices.union(a1, b1)
-            else:
-                vertices.union(a0, b1)
-                vertices.union(a1, b0)
-        return offsets, vertices, polygons
-
-    @staticmethod
-    def _boundary_count(
-        surface: SurfacePresentation,
-        offsets: tuple[int, ...],
-        vertices: DisjointSet,
-        edges: list[EdgeRef],
-    ) -> int:
-        if not edges:
-            return 0
-        roots = sorted(
-            {
-                vertices.find(v)
-                for edge in edges
-                for v in surface.native_edge_vertices(edge, offsets)
-            }
-        )
-        index = {root: i for i, root in enumerate(roots)}
-        components = DisjointSet(len(roots))
-        degree = dict.fromkeys(roots, 0)
-        for edge in edges:
-            a, b = (vertices.find(v) for v in surface.native_edge_vertices(edge, offsets))
-            components.union(index[a], index[b])
-            degree[a] += 1
-            degree[b] += 1
-        if any(value != 2 for value in degree.values()):
-            raise ValueError("unglued edges do not form boundary circles")
-        return len({components.find(i) for i in range(len(roots))})
-
-    @staticmethod
-    def _is_orientable(gluings: tuple[EdgeGluing, ...], polygons: set[int]) -> bool:
-        adjacency: dict[int, list[tuple[int, int]]] = {p: [] for p in polygons}
-        for gluing in gluings:
-            if gluing.first.polygon not in polygons:
-                continue
-            relation = -1 if gluing.same_direction else 1
-            adjacency[gluing.first.polygon].append((gluing.second.polygon, relation))
-            adjacency[gluing.second.polygon].append((gluing.first.polygon, relation))
-        signs: dict[int, int] = {}
-        for start in polygons:
-            if start in signs:
-                continue
-            signs[start] = 1
-            stack = [start]
-            while stack:
-                current = stack.pop()
-                for neighbor, relation in adjacency[current]:
-                    required = signs[current] * relation
-                    if neighbor in signs and signs[neighbor] != required:
-                        return False
-                    if neighbor not in signs:
-                        signs[neighbor] = required
-                        stack.append(neighbor)
-        return True
-
-    @staticmethod
-    def _validate_vertex_links(surface: SurfacePresentation, vertex_dsu: DisjointSet) -> None:
-        offsets = surface.vertex_offsets()
-        edge_offsets = [0]
-        for polygon in surface.polygons:
-            edge_offsets.append(edge_offsets[-1] + polygon.sides)
-        links = DisjointSet(2 * edge_offsets[-1])
-        for gluing in surface.gluings:
-            for at_start in (True, False):
-                a = 2 * (edge_offsets[gluing.first.polygon] + gluing.first.edge) + (
-                    0 if at_start else 1
-                )
-                b_start = at_start if gluing.same_direction else not at_start
-                b = 2 * (edge_offsets[gluing.second.polygon] + gluing.second.edge) + (
-                    0 if b_start else 1
-                )
-                links.union(a, b)
-        by_vertex: dict[int, list[tuple[int, int]]] = {}
-        for p, polygon in enumerate(surface.polygons):
-            for corner in range(polygon.sides):
-                previous = edge_offsets[p] + (corner - 1) % polygon.sides
-                following = edge_offsets[p] + corner
-                by_vertex.setdefault(vertex_dsu.find(offsets[p] + corner), []).append(
-                    (links.find(2 * previous + 1), links.find(2 * following))
-                )
-        for segments in by_vertex.values():
-            adjacency: dict[int, list[int]] = {}
-            degree: dict[int, int] = {}
-            for a, b in segments:
-                adjacency.setdefault(a, []).append(b)
-                adjacency.setdefault(b, []).append(a)
-                degree[a] = degree.get(a, 0) + 1
-                degree[b] = degree.get(b, 0) + 1
-            reached = {next(iter(adjacency))}
-            stack = list(reached)
-            while stack:
-                for neighbor in adjacency[stack.pop()]:
-                    if neighbor not in reached:
-                        reached.add(neighbor)
-                        stack.append(neighbor)
-            values = sorted(degree.values())
-            if len(reached) != len(adjacency) or not (
-                all(v == 2 for v in values)
-                or (values.count(1) == 2 and all(v in (1, 2) for v in values))
-            ):
-                raise ValueError("a quotient vertex has a non-manifold link")
-
     @staticmethod
     def _quotient_edges(
         surface: SurfacePresentation,
@@ -419,8 +211,8 @@ class SurfaceAnalyzer:
         paired: dict[EdgeRef, tuple[EdgeRef, int]] = {}
         for gluing in surface.gluings:
             sign = 1 if gluing.same_direction else -1
-            paired[gluing.first] = (gluing.second, sign)
-            paired[gluing.second] = (gluing.first, sign)
+            paired[gluing.first_edge] = (gluing.second_edge, sign)
+            paired[gluing.second_edge] = (gluing.first_edge, sign)
         basis: list[EdgeRef] = []
         occurrence: dict[EdgeRef, tuple[int, int]] = {}
         for p, polygon in enumerate(surface.polygons):

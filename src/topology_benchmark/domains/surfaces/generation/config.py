@@ -24,6 +24,10 @@ from topology_benchmark.domains.surfaces.generation.context.object import (
     SurfaceObjectCondition,
     SurfacePathCondition,
 )
+from topology_benchmark.utils.distribution_model import (
+    create_distribution_model,
+    finite_distribution_from_config,
+)
 
 type Difficulty = Annotated[int, Field(ge=1, le=10)]
 type PolygonCount = Annotated[int, Field(ge=1, le=4)]
@@ -48,6 +52,7 @@ class _StrictConfigModel(BaseModel):
         strict=True,
         extra="forbid",
         validate_default=True,
+        arbitrary_types_allowed=True,
     )
 
 
@@ -88,9 +93,11 @@ type SurfacePathsConfig = Annotated[
 
 
 class SurfaceObjectOutcomeConfig(_StrictConfigModel):
-    weight: Nonnegative
     component_count: Annotated[int, Field(ge=1, le=4)]
     paths: SurfacePathsConfig
+
+
+SurfaceObjectOutcomeDistribution = create_distribution_model(SurfaceObjectOutcomeConfig)
 
 
 class MorphismLawChoice(_StrictConfigModel):
@@ -126,28 +133,16 @@ class SurfaceGenerationConfig(_StrictConfigModel):
     morphism_retry_limit: int
     difficulty: DifficultyProfile
     recipe_weights: dict[str, AnchoredValue]
-    object_laws: dict[str, tuple[SurfaceObjectOutcomeConfig, ...]]
+    object_laws: dict[str, FiniteDistribution[SurfaceObjectCondition]]
     morphism_laws: dict[str, SurfaceMorphismLawProfile]
 
     def object_law_for(self, recipe_id: str) -> FiniteDistribution[SurfaceObjectCondition]:
         try:
-            outcomes = self.object_laws[recipe_id]
+            return self.object_laws[recipe_id]
         except KeyError as error:
             raise ConfigurationError(
                 f"no surface-object law is configured for {recipe_id!r}"
             ) from error
-        return FiniteDistribution(
-            tuple(
-                WeightedValue(
-                    SurfaceObjectCondition(
-                        outcome.component_count,
-                        _surface_paths(outcome.paths),
-                    ),
-                    outcome.weight,
-                )
-                for outcome in outcomes
-            )
-        )
 
     def morphism_law_for(self, recipe_id: str) -> SurfaceMorphismLawProfile:
         try:
@@ -232,7 +227,7 @@ class SurfaceGenerationInput(_StrictConfigModel):
     morphism_retry_limit: Annotated[int, Field(ge=1)]
     difficulty: _DifficultyInput
     recipes: _RecipesInput
-    object_laws: dict[str, dict[str, SurfaceObjectOutcomeConfig]]
+    object_laws: dict[str, SurfaceObjectOutcomeDistribution]
     subjects: _SubjectsInput
     morphisms: _MorphismsInput
 
@@ -251,11 +246,6 @@ class SurfaceGenerationInput(_StrictConfigModel):
         recipes = {recipe for group in self.recipes.object.values() for recipe in group}
         if set(self.object_laws) != recipes:
             raise ValueError("object laws must configure every object recipe ID")
-        if any(
-            not outcomes or not any(item.weight for item in outcomes.values())
-            for outcomes in self.object_laws.values()
-        ):
-            raise ValueError("each surface-object law needs positive total weight")
         return self
 
 
@@ -281,7 +271,12 @@ def resolve_surface_generation_config(
         ),
         recipe_weights=_recipe_weight_profiles(source),
         object_laws={
-            recipe_id: tuple(outcomes.values())
+            recipe_id: finite_distribution_from_config(outcomes).map(
+                lambda outcome: SurfaceObjectCondition(
+                    outcome.component_count,
+                    _surface_paths(outcome.paths),
+                )
+            )
             for recipe_id, outcomes in source.object_laws.items()
         },
         morphism_laws={

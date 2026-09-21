@@ -1,15 +1,19 @@
 generation:
-  profile_version: "torus-slices-v5"
+  profile_version: "torus-slices-v6"
   count:
     easy_maximum: 2
     standard_maximum: 3
-    linked_probability: 0.58
+    families:
+      - {linking: unlinked, $weight: 0.42}
+      - {linking: pair-linked, $weight: 0.58}
 
   link:
     minimum_count: 2
     maximum_count: 4
-    chain_probability: 0.4
-    complete_probability: 0.4
+    linked_families:
+      - {linking: pair-linked, $weight: 0.2}
+      - {linking: chain-linked, $weight: 0.4}
+      - {linking: completely-linked, $weight: 0.4}
 
   recipe_weights:
     torus-count: {1: 1.0, 2: 1.0, 3: 0.35, 5: 0.35, 6: 0.0}

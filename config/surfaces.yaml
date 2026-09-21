@@ -1,5 +1,5 @@
 generation:
-  profile_version: "surface-v10"
+  profile_version: "surface-v11"
   noise_probability: 0.075
   retry_limit: 250
   morphism_retry_limit: 40
@@ -56,23 +56,23 @@ generation:
   # as path count and closure can be correlated without generator-side modes.
   object_laws:
     euler-characteristic: &ordinary_surface_law
-      no-path: {weight: 0.925, component_count: 1, paths: {kind: none}}
-      closed-incidental-path: {weight: 0.0375, component_count: 1, paths: {kind: distinguished, count: 1, first_closed: true}}
-      open-incidental-path: {weight: 0.0375, component_count: 1, paths: {kind: distinguished, count: 1, first_closed: false}}
+      - {$weight: 0.925, component_count: 1, paths: {kind: none}}
+      - {$weight: 0.0375, component_count: 1, paths: {kind: distinguished, count: 1, first_closed: true}}
+      - {$weight: 0.0375, component_count: 1, paths: {kind: distinguished, count: 1, first_closed: false}}
     boundary-components: *ordinary_surface_law
     connected-components:
-      one-component: {weight: 0.35, component_count: 1, paths: {kind: none}}
-      two-components: {weight: 1.0, component_count: 2, paths: {kind: none}}
-      three-components: {weight: 0.25, component_count: 3, paths: {kind: none}}
+      - {$weight: 0.35, component_count: 1, paths: {kind: none}}
+      - {$weight: 1.0, component_count: 2, paths: {kind: none}}
+      - {$weight: 0.25, component_count: 3, paths: {kind: none}}
     orientable: *ordinary_surface_law
     homology-groups: *ordinary_surface_law
     path-is-cycle:
-      one-closed: {weight: 0.50875, component_count: 1, paths: {kind: distinguished, count: 1, first_closed: true}}
-      one-open: {weight: 0.41625, component_count: 1, paths: {kind: distinguished, count: 1, first_closed: false}}
-      two-first-closed: {weight: 0.04125, component_count: 1, paths: {kind: distinguished, count: 2, first_closed: true}}
-      two-first-open: {weight: 0.03375, component_count: 1, paths: {kind: distinguished, count: 2, first_closed: false}}
+      - {$weight: 0.50875, component_count: 1, paths: {kind: distinguished, count: 1, first_closed: true}}
+      - {$weight: 0.41625, component_count: 1, paths: {kind: distinguished, count: 1, first_closed: false}}
+      - {$weight: 0.04125, component_count: 1, paths: {kind: distinguished, count: 2, first_closed: true}}
+      - {$weight: 0.03375, component_count: 1, paths: {kind: distinguished, count: 2, first_closed: false}}
     path-representative:
-      nontrivial-representative: {weight: 1.0, component_count: 1, paths: {kind: nontrivial-homology}}
+      - {$weight: 1.0, component_count: 1, paths: {kind: nontrivial-homology}}
   morphisms:
     families:
       full-disk-boundary: {1: 0.35, 4: 0.18, 7: 0.06, 10: 0.02}
@@ -109,16 +109,19 @@ rendering:
   styles:
     - id: classic
       backend: matplotlib-svg
-      weight: 1.0
+      $weight: 1.0
       canvas_color: "#ffffff"
       palettes:
-        - fill: "#f8f5ed"
+        - $weight: 1.0
+          fill: "#f8f5ed"
           ink: "#263238"
           path_colors: ["#007c91", "#d97706", "#7e22ce"]
-        - fill: "#e8f4f8"
+        - $weight: 1.0
+          fill: "#e8f4f8"
           ink: "#164e63"
           path_colors: ["#be123c", "#00796b", "#6a1b9a"]
-        - fill: "#fff1e6"
+        - $weight: 1.0
+          fill: "#fff1e6"
           ink: "#5d4037"
           path_colors: ["#1565c0", "#c62828", "#00838f"]
       stroke:
@@ -150,13 +153,15 @@ rendering:
 
     - id: hand-drawn
       backend: matplotlib-svg
-      weight: 1.0
+      $weight: 1.0
       canvas_color: "#f3ead3"
       palettes:
-        - fill: "#efe2bd"
+        - $weight: 1.0
+          fill: "#efe2bd"
           ink: "#302b27"
           path_colors: ["#315d73", "#a44a3f", "#6b5b2a"]
-        - fill: "#e9d8ad"
+        - $weight: 1.0
+          fill: "#e9d8ad"
           ink: "#40352c"
           path_colors: ["#365f46", "#9b4b32", "#57447a"]
       stroke:
@@ -177,13 +182,15 @@ rendering:
 
     - id: blueprint
       backend: matplotlib-svg
-      weight: 1.0
+      $weight: 1.0
       canvas_color: "#073763"
       palettes:
-        - fill: "#0b4a79"
+        - $weight: 1.0
+          fill: "#0b4a79"
           ink: "#d8f3ff"
           path_colors: ["#67e8f9", "#fef08a", "#f0abfc"]
-        - fill: "#103f68"
+        - $weight: 1.0
+          fill: "#103f68"
           ink: "#effaff"
           path_colors: ["#93c5fd", "#fcd34d", "#f9a8d4"]
       stroke:
@@ -213,13 +220,15 @@ rendering:
 
     - id: neon
       backend: matplotlib-svg
-      weight: 0.75
+      $weight: 0.75
       canvas_color: "#090611"
       palettes:
-        - fill: "#151126"
+        - $weight: 1.0
+          fill: "#151126"
           ink: "#72f1ff"
           path_colors: ["#ff4fd8", "#77ff66", "#ffd166"]
-        - fill: "#10192b"
+        - $weight: 1.0
+          fill: "#10192b"
           ink: "#c4f5ff"
           path_colors: ["#00f5d4", "#f15bb5", "#fee440"]
       stroke:

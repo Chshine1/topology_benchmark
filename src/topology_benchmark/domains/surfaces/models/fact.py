@@ -5,49 +5,44 @@ from .object import EdgeRef
 
 @dataclass(frozen=True, slots=True)
 class ComponentFacts:
-    polygons: tuple[int, ...]
+    polygon_indices: tuple[int, ...]
     orientable: bool
     euler_characteristic: int
-    boundary_components: int
-    genus: int
+    boundary_count: int
+
+    @property
+    def genus(self) -> int:
+        numerator = 2 - self.boundary_count - self.euler_characteristic
+        return numerator // 2 if self.orientable else numerator
 
     @property
     def first_betti_number(self) -> int:
         if self.orientable:
-            return 2 * self.genus + max(0, self.boundary_components - 1)
-        return self.genus - 1 + self.boundary_components
+            return 2 * self.genus + max(0, self.boundary_count - 1)
+        return self.genus - 1 + self.boundary_count
 
 
 @dataclass(frozen=True, slots=True)
 class SurfaceFacts:
     components: tuple[ComponentFacts, ...]
-    vertex_count: int
-    edge_count: int
-    face_count: int
 
     @property
     def euler_characteristic(self) -> int:
-        return self.vertex_count - self.edge_count + self.face_count
+        return sum(component.euler_characteristic for component in self.components)
 
     @property
     def boundary_components(self) -> int:
-        return sum(component.boundary_components for component in self.components)
+        return sum(component.boundary_count for component in self.components)
+
+
+@dataclass(frozen=True, slots=True)
+class DimensionOneHomologyElement:
+    edges_representative: tuple[tuple[int, EdgeRef], ...]
+    order: int | None
 
 
 @dataclass(frozen=True, slots=True)
 class CellularHomology:
-    """``relations`` are d2 columns in the fundamental ``cycle_basis`` of ker(d1).
-
-    ``smith_coordinate_map`` converts coordinates in that basis to the Smith basis.
-    """
-
-    edge_basis: tuple[EdgeRef, ...]
-    cycle_basis: tuple[str, ...]
-    relations: tuple[tuple[int, ...], ...]
-    smith_diagonal: tuple[int, ...]
-    smith_basis: tuple[tuple[int, ...], ...]
-    smith_coordinate_map: tuple[tuple[int, ...], ...]
     h0_rank: int
-    h1_rank: int
-    h1_torsion: tuple[int, ...]
+    h1_basis: tuple[DimensionOneHomologyElement, ...]
     h2_rank: int

@@ -2,6 +2,10 @@ from typing import Annotated, Literal, Self
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, model_validator
 
+from topology_benchmark.utils.distribution_model import (
+    create_distribution_model,
+    finite_distribution_from_config,
+)
 from topology_benchmark.utils.matplotlib import ArrowControlConfig, GlowLayerConfig, SketchConfig
 
 
@@ -87,6 +91,9 @@ class PaletteConfig(_StrictConfigModel):
         return self
 
 
+PaletteDistribution = create_distribution_model(PaletteConfig)
+
+
 class GridConfig(_StrictConfigModel):
     spacing: float = Field(gt=0)
     color: str = Field(min_length=1)
@@ -107,31 +114,24 @@ class SurfaceVisualStyleConfig(_StrictConfigModel):
     stroke: StrokeConfig
     grid: GridConfig | None
     id: str = Field(pattern=r"^[a-z][a-z0-9-]*$")
-    weight: float = Field(ge=0)
     canvas_color: str = Field(min_length=1)
-    palettes: YamlTuple[PaletteConfig]
+    palettes: PaletteDistribution
     arrows: _ArrowConfig
     labels: LabelConfig
 
-    @model_validator(mode="after")
-    def _has_palettes(self) -> Self:
-        if not self.palettes:
-            raise ValueError("each visual style needs at least one palette")
-        return self
+
+SurfaceVisualStyleDistribution = create_distribution_model(SurfaceVisualStyleConfig)
 
 
 class SurfaceRenderingConfig(_StrictConfigModel):
     canvas: CanvasConfig
     geometry: GeometryConfig
-    styles: YamlTuple[SurfaceVisualStyleConfig]
+    styles: SurfaceVisualStyleDistribution
 
     @model_validator(mode="after")
     def _has_unique_styles(self) -> Self:
-        if not self.styles:
-            raise ValueError("rendering.styles must not be empty")
-        if not any(style.weight > 0 for style in self.styles):
-            raise ValueError("rendering.styles needs at least one positive weight")
-        ids = tuple(style.id for style in self.styles)
+        styles = finite_distribution_from_config(self.styles)
+        ids = tuple(item.value.id for item in styles.values)
         if len(set(ids)) != len(ids):
             raise ValueError("rendering style IDs must be unique")
         return self

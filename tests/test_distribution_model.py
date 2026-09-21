@@ -1,9 +1,8 @@
 from copy import deepcopy
 from random import Random
-from typing import cast
 
 import pytest
-from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError, create_model
+from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError
 
 from topology_benchmark.core.probability.distribution import FiniteDistribution, IDistribution
 from topology_benchmark.utils.distribution_model import create_distribution_model
@@ -13,6 +12,13 @@ class ExampleConfig(BaseModel):
     model_config = ConfigDict(frozen=True, strict=True, extra="forbid")
 
     value: int
+
+
+ExampleConfigDistribution = create_distribution_model(ExampleConfig)
+
+
+class ConfiguredEnvelope(BaseModel):
+    choices: ExampleConfigDistribution
 
 
 def test_weighted_configuration_preserves_types_weights_and_input() -> None:
@@ -32,6 +38,11 @@ def test_weighted_configuration_preserves_types_weights_and_input() -> None:
     distribution: IDistribution[ExampleConfig] = config
     assert distribution.sample(Random(0)).value == 2
     assert adapter.validate_python(config) is config
+    dumped = adapter.dump_python(config)
+    assert dumped == [{"value": 1, "$weight": 1.0}, {"value": 2, "$weight": 3.0}]
+    round_trip = adapter.validate_python(dumped)
+    for seed in range(100):
+        assert round_trip.sample(Random(seed)) == expected.sample(Random(seed))
     with pytest.raises(ValidationError, match="frozen"):
         config.__setattr__("distribution", object())
 
@@ -62,16 +73,10 @@ def test_invalid_configuration_raises_validation_error(data: object) -> None:
 
 
 def test_nested_configuration_and_json_validation() -> None:
-    class Envelope(BaseModel):
-        choices: object
-
-    distribution_model = create_distribution_model(ExampleConfig)
-    envelope = create_model(
-        "ConfiguredEnvelope", __base__=Envelope, choices=(distribution_model, ...)
-    )
-    config = envelope.model_validate_json('{"choices": [{"value": 7, "$weight": 1}]}')
-    choices = cast(IDistribution[ExampleConfig], config.choices)
-    assert choices.sample(Random(0)) == ExampleConfig(value=7)
+    config = ConfiguredEnvelope.model_validate_json('{"choices": [{"value": 7, "$weight": 1}]}')
+    assert config.choices.sample(Random(0)) == ExampleConfig(value=7)
+    round_trip = ConfiguredEnvelope.model_validate(config.model_dump())
+    assert round_trip.choices.sample(Random(0)) == ExampleConfig(value=7)
 
 
 def test_zero_weight_entries_are_never_sampled() -> None:

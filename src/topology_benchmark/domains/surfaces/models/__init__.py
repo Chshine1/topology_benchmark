@@ -9,7 +9,6 @@ from .object import (
     EdgeRef,
     OrientedEdge,
     Polygon,
-    SurfacePath,
     SurfacePresentation,
 )
 
@@ -24,6 +23,5 @@ __all__ = [
     "PolygonAttachmentMorphism",
     "SurfaceFacts",
     "SurfaceMorphism",
-    "SurfacePath",
     "SurfacePresentation",
 ]

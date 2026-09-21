@@ -24,7 +24,6 @@ from topology_benchmark.domains.surfaces.models import (
     EdgeRef,
     OrientedEdge,
     Polygon,
-    SurfacePath,
     SurfacePresentation,
 )
 from topology_benchmark.domains.surfaces.services import SurfaceAnalyzer
@@ -32,7 +31,7 @@ from topology_benchmark.domains.surfaces.services import SurfaceAnalyzer
 
 class RandomSurfacePresentationGenerator(ISurfaceGenerator):
     def __init__(self, config: SurfaceGenerationConfig, analyzer: SurfaceAnalyzer) -> None:
-        self.config = config
+        self._config = config
         self._analyzer = analyzer
 
     @override
@@ -43,7 +42,7 @@ class RandomSurfacePresentationGenerator(ISurfaceGenerator):
         self, context: SurfaceObjectGenerationContext, rng: Random
     ) -> SurfacePresentation:
         condition = context.sampling.sample("surface.condition", context.law)
-        for _ in range(self.config.retry_limit):
+        for _ in range(self._config.retry_limit):
             polygon_count = self._generate_polygon_count(context, condition, rng)
             polygons = tuple(
                 Polygon(self._generate_side_count(context.request, rng))
@@ -65,14 +64,14 @@ class RandomSurfacePresentationGenerator(ISurfaceGenerator):
                 )
                 for index in range(pair_count)
             )
-            candidate = SurfacePresentation(polygons, gluings)
+            candidate = SurfacePresentation(polygons=polygons, gluings=gluings, paths=())
             try:
                 facts = self._analyzer.analyze(candidate)
             except ValueError:
                 continue
             if len(facts.components) != condition.component_count:
                 continue
-            paths = self._paths(candidate, context, condition)
+            paths = self._generate_paths(candidate, context, condition)
             completed = SurfacePresentation(polygons, gluings, paths)
             if isinstance(condition.paths, NontrivialHomologySurfacePath):
                 facts = self._analyzer.analyze(completed)
@@ -96,11 +95,11 @@ class RandomSurfacePresentationGenerator(ISurfaceGenerator):
         polygons = tuple(
             Polygon(3 + fallback_rng.randrange(4)) for _ in range(condition.component_count)
         )
-        fallback = SurfacePresentation(polygons, ())
+        fallback = SurfacePresentation(polygons=polygons, gluings=(), paths=())
         return SurfacePresentation(
             fallback.polygons,
             (),
-            self._paths(
+            self._generate_paths(
                 fallback,
                 context,
                 SurfaceObjectCondition(
@@ -118,7 +117,7 @@ class RandomSurfacePresentationGenerator(ISurfaceGenerator):
         condition: SurfaceObjectCondition,
         rng: Random,
     ) -> int:
-        profile = self.config.difficulty
+        profile = self._config.difficulty
         difficulty = context.request.difficulty
         target = profile.visual_budget.at(difficulty)
         options = []
@@ -131,22 +130,22 @@ class RandomSurfacePresentationGenerator(ISurfaceGenerator):
             options.append(
                 WeightedValue(
                     count,
-                    blended_weight(aligned, 0.25, self.config.noise_probability),
+                    blended_weight(aligned, 0.25, self._config.noise_probability),
                 )
             )
         return FiniteDistribution(tuple(options)).sample(rng)
 
     def _generate_side_count(self, request: GenerationRequest, rng: Random) -> int:
-        continuation = self.config.difficulty.side_continuation.at(request.difficulty)
+        continuation = self._config.difficulty.side_continuation.at(request.difficulty)
         return TruncatedGeometricDistribution(3, 8, continuation).sample(rng)
 
     def _generate_pair_count(
         self, context: SurfaceObjectGenerationContext, edge_count: int, rng: Random
     ) -> int:
         maximum = edge_count // 2
-        density = self.config.difficulty.gluing_density.at(context.request.difficulty)
+        density = self._config.difficulty.gluing_density.at(context.request.difficulty)
         target = density * maximum
-        budget = self.config.difficulty.visual_budget.at(context.request.difficulty)
+        budget = self._config.difficulty.visual_budget.at(context.request.difficulty)
         options = tuple(
             WeightedValue(
                 count,
@@ -154,47 +153,47 @@ class RandomSurfacePresentationGenerator(ISurfaceGenerator):
                     math.exp(-0.55 * (count - target) ** 2)
                     * math.exp(-0.5 * max(0.0, count - budget) ** 2),
                     1 / (maximum + 1),
-                    self.config.noise_probability,
+                    self._config.noise_probability,
                 ),
             )
             for count in range(maximum + 1)
         )
         return FiniteDistribution(options).sample(rng)
 
-    def _paths(
+    def _generate_paths(
         self,
         surface: SurfacePresentation,
         context: SurfaceObjectGenerationContext,
         condition: SurfaceObjectCondition,
-    ) -> tuple[SurfacePath, ...]:
+    ) -> tuple[tuple[OrientedEdge, ...], ...]:
         if isinstance(condition.paths, NoSurfacePaths):
             return ()
         count = (
             condition.paths.count if isinstance(condition.paths, DistinguishedSurfacePaths) else 1
         )
-        paths: list[SurfacePath] = []
+        paths: list[tuple[OrientedEdge, ...]] = []
         remaining_segments = 7
         for index in range(count):
             reserved_for_later = count - index - 1
             maximum = remaining_segments - reserved_for_later
-            path = self._path(surface, context, condition, index, maximum)
+            path = self._generate_path(surface, context, condition, index, maximum)
             paths.append(path)
-            remaining_segments -= len(path.edges)
+            remaining_segments -= len(path)
         return tuple(paths)
 
-    def _path(
+    def _generate_path(
         self,
         surface: SurfacePresentation,
         context: SurfaceObjectGenerationContext,
         condition: SurfaceObjectCondition,
         index: int,
         segment_budget: int,
-    ) -> SurfacePath:
+    ) -> tuple[OrientedEdge, ...]:
         maximum = min(
             segment_budget,
-            max(1, round(self.config.difficulty.path_maximum.at(context.request.difficulty))),
+            max(1, round(self._config.difficulty.path_maximum.at(context.request.difficulty))),
         )
-        continuation = self.config.difficulty.path_continuation.at(context.request.difficulty)
+        continuation = self._config.difficulty.path_continuation.at(context.request.difficulty)
         length = context.sampling.sample(
             f"path.{index}.length",
             TruncatedGeometricDistribution(1, maximum, continuation),
@@ -240,7 +239,7 @@ class RandomSurfacePresentationGenerator(ISurfaceGenerator):
                 walk[-1], False, quotient
             )
             if closed == must_be_closed:
-                return SurfacePath(chr(ord("p") + index), tuple(walk))
+                return tuple(walk)
 
         if must_be_closed and maximum >= 2:
             edge = rng.choice(directed)
@@ -256,4 +255,4 @@ class RandomSurfacePresentationGenerator(ISurfaceGenerator):
                 directed[0],
             )
             walk = (edge,)
-        return SurfacePath(chr(ord("p") + index), walk)
+        return walk

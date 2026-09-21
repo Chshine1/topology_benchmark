@@ -1,11 +1,11 @@
 from pathlib import Path
-from typing import Annotated, Self
+from typing import Annotated, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from topology_benchmark.core.configuration import load_yaml_config
+from topology_benchmark.utils.distribution_model import create_distribution_model
 
-type Probability = Annotated[float, Field(ge=0, le=1)]
 type Difficulty = Annotated[int, Field(ge=1, le=10)]
 type Nonnegative = Annotated[float, Field(ge=0, allow_inf_nan=False)]
 type RecipeWeights = Annotated[dict[Difficulty, Nonnegative], Field(min_length=1)]
@@ -15,24 +15,35 @@ class _StrictConfigModel(BaseModel):
     model_config = ConfigDict(frozen=True, strict=True, extra="forbid")
 
 
+class TorusCountFamilyConfig(_StrictConfigModel):
+    linking: Literal["unlinked", "pair-linked"]
+
+
+TorusCountFamilyDistribution = create_distribution_model(TorusCountFamilyConfig)
+
+
+class TorusLinkFamilyConfig(_StrictConfigModel):
+    linking: Literal["pair-linked", "chain-linked", "completely-linked"]
+
+
+TorusLinkFamilyDistribution = create_distribution_model(TorusLinkFamilyConfig)
+
+
 class TorusCountConfig(_StrictConfigModel):
     easy_maximum: Annotated[int, Field(ge=1)]
     standard_maximum: Annotated[int, Field(ge=1)]
-    linked_probability: Probability
+    families: TorusCountFamilyDistribution
 
 
 class TorusLinkConfig(_StrictConfigModel):
     minimum_count: Annotated[int, Field(ge=2, le=4)]
     maximum_count: Annotated[int, Field(ge=2, le=4)]
-    chain_probability: Probability
-    complete_probability: Probability
+    linked_families: TorusLinkFamilyDistribution
 
     @model_validator(mode="after")
-    def _has_valid_range_and_probabilities(self) -> Self:
+    def _has_valid_range(self) -> Self:
         if self.minimum_count > self.maximum_count:
             raise ValueError("torus link counts must lie between two and four")
-        if self.chain_probability + self.complete_probability > 1:
-            raise ValueError("torus link pattern probabilities are invalid")
         return self
 
 

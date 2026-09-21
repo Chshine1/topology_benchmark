@@ -1,9 +1,11 @@
 import math
 from random import Random
+from typing import Any, cast
 
 import pytest
 
 from topology_benchmark import build_container
+from topology_benchmark.application.configuration import TORUS_DOMAIN_CONFIG
 from topology_benchmark.core.probability.sampling import SamplingSession
 from topology_benchmark.core.problem.models import GenerationRequest
 from topology_benchmark.domains.torus_slices import (
@@ -19,6 +21,20 @@ from topology_benchmark.domains.torus_slices import (
 from topology_benchmark.domains.torus_slices.abstractions import (
     TorusProblemRecipeDistribution,
 )
+from topology_benchmark.domains.torus_slices.config import load_torus_domain_config
+
+
+def test_torus_family_probabilities_are_configured_distributions() -> None:
+    config = load_torus_domain_config(TORUS_DOMAIN_CONFIG).generation
+
+    count_families = cast(Any, config.count.families)
+    link_families = cast(Any, config.link.linked_families)
+    assert count_families.distribution.probability(
+        lambda family: family.linking == "pair-linked"
+    ) == pytest.approx(0.58)
+    assert link_families.distribution.probability(
+        lambda family: family.linking == "chain-linked"
+    ) == pytest.approx(0.4)
 
 
 def test_disk_intersection_computes_hopf_link_and_unlink() -> None:

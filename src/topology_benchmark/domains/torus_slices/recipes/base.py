@@ -23,7 +23,7 @@ from topology_benchmark.domains.torus_slices.services.torus_family_analyzer impo
 class TorusProblemRecipe(IProblemRecipe[TorusAnswer], ABC):
     id = ""
     prompt = ""
-    profile_version = "torus-slices-v5"
+    profile_version = "torus-slices-v6"
 
     def __init__(
         self,

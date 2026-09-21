@@ -152,6 +152,9 @@
   levels, problem recipes, and semantic outcomes. Compose dependent selections with distribution
   operations so the joint law remains available for exact inspection; do not implement local
   weighted-choice sampling loops.
+- Represent static finite distributions in YAML as weighted lists through
+  `create_distribution_model`, with `$weight` reserved for distribution metadata and each entry's
+  remaining fields validated by its semantic configuration model.
 
 ## Properties and data
 
@@ -216,5 +219,9 @@
 - During every change, identify durable architectural decisions and recurring review lessons.
   Record them in `AGENTS.md` when they will guide future work across tasks; do this proactively
   before finishing rather than waiting for an explicit request.
+- Keep every public callable's parameter and return annotations at least as accessible as the
+  callable itself; expose a public protocol rather than a private implementation type. Tests that
+  need to inspect private implementation state should access it directly instead of adding a
+  production accessor used only by tests.
 - Keep these instructions focused on reusable constraints and reasoning. Do not record temporary
   implementation details, one-off bug descriptions, or facts that are already obvious from code.

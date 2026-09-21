@@ -4,7 +4,7 @@ from enum import Enum
 from fractions import Fraction
 from itertools import permutations, product
 
-from topology_benchmark.core.structures.disjoint_set import DisjointSet
+from topology_benchmark.core.structures.disjoint_set import DisjointSetUnion
 from topology_benchmark.domains.polyhedral_nets.models.net import (
     EdgePair,
     FaceCorner,
@@ -289,7 +289,7 @@ class PolyhedralNetAnalyzer:
         offsets = [0]
         for face in net.faces:
             offsets.append(offsets[-1] + face.sides)
-        dsu = DisjointSet(offsets[-1])
+        dsu = DisjointSetUnion(offsets[-1])
 
         def endpoints(edge: NetEdge) -> tuple[int, int]:
             start = offsets[edge.face] + edge.edge

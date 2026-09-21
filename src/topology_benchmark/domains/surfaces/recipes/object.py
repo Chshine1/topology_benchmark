@@ -184,11 +184,4 @@ class PathRepresentativeProblemRecipe(SurfaceObjectProblemRecipe):
 
     @override
     def _edge_labels(self, surface: SurfacePresentation, /) -> tuple[tuple[EdgeRef, str], ...]:
-        used = {
-            edge
-            for coefficients, _ in self._analyzer.h1_edge_generators(surface)
-            for edge, coefficient in enumerate(coefficients)
-            if coefficient
-        }
-        basis = self._analyzer.cellular_homology(surface).edge_basis
         return tuple((basis[edge], f"e{tag}") for tag, edge in enumerate(sorted(used), start=1))

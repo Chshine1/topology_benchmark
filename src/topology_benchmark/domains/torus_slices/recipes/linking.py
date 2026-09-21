@@ -10,7 +10,7 @@ from topology_benchmark.domains.torus_slices.abstractions import (
     ITorusSliceRepresentation,
     TorusAnswer,
 )
-from topology_benchmark.domains.torus_slices.config import TorusLinkConfig
+from topology_benchmark.domains.torus_slices.config import TorusLinkConfig, TorusLinkFamilyConfig
 from topology_benchmark.domains.torus_slices.generation.context import (
     ChainLinkedTorusFamily,
     CompletelyLinkedTorusFamily,
@@ -23,6 +23,7 @@ from topology_benchmark.domains.torus_slices.recipes.base import TorusProblemRec
 from topology_benchmark.domains.torus_slices.services.torus_family_analyzer import (
     TorusFamilyAnalyzer,
 )
+from topology_benchmark.utils.distribution_model import finite_distribution_from_config
 
 
 class LinkedProblemRecipe(TorusProblemRecipe):
@@ -59,29 +60,33 @@ class _ConfiguredLinkProblemRecipe(TorusProblemRecipe):
 
     @override
     def _law(self, request: GenerationRequest, /) -> FiniteDistribution[TorusFamilyCondition]:
-        values: list[WeightedValue[TorusFamilyCondition]] = []
-        for count in range(self.config.minimum_count, self.config.maximum_count + 1):
-            values.append(WeightedValue(UnlinkedTorusFamily(count), 0.5))
-            if count < 3 or request.difficulty < 7:
-                values.append(WeightedValue(PairLinkedTorusFamily(count), 0.5))
-                continue
-            values.extend(
-                (
-                    WeightedValue(
-                        PairLinkedTorusFamily(count),
-                        0.5
-                        * (1 - self.config.chain_probability - self.config.complete_probability),
-                    ),
-                    WeightedValue(
-                        ChainLinkedTorusFamily(count), 0.5 * self.config.chain_probability
-                    ),
-                    WeightedValue(
-                        CompletelyLinkedTorusFamily(count),
-                        0.5 * self.config.complete_probability,
-                    ),
-                )
-            )
-        return FiniteDistribution(tuple(values))
+        counts = FiniteDistribution.weighted(
+            (count, 1.0)
+            for count in range(self.config.minimum_count, self.config.maximum_count + 1)
+        )
+        return counts.bind(lambda count: self._family_law(count, request.difficulty))
+
+    def _family_law(self, count: int, difficulty: int) -> FiniteDistribution[TorusFamilyCondition]:
+        def configured_family(family: TorusLinkFamilyConfig) -> TorusFamilyCondition:
+            return {
+                "pair-linked": PairLinkedTorusFamily(count),
+                "chain-linked": ChainLinkedTorusFamily(count),
+                "completely-linked": CompletelyLinkedTorusFamily(count),
+            }[family.linking]
+
+        linked: FiniteDistribution[TorusFamilyCondition] = (
+            FiniteDistribution[TorusFamilyCondition].concentrated(PairLinkedTorusFamily(count))
+            if count < 3 or difficulty < 7
+            else finite_distribution_from_config(self.config.linked_families).map(configured_family)
+        )
+
+        def conditional(is_linked: bool) -> FiniteDistribution[TorusFamilyCondition]:
+            if is_linked:
+                return linked
+            return FiniteDistribution[TorusFamilyCondition].concentrated(UnlinkedTorusFamily(count))
+
+        linkage = FiniteDistribution.weighted(((False, 0.5), (True, 0.5)))
+        return linkage.bind(conditional)
 
 
 class CompletelyUnlinkedProblemRecipe(_ConfiguredLinkProblemRecipe):

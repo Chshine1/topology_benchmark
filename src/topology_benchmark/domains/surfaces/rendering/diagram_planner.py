@@ -1,27 +1,23 @@
 import itertools
 import math
+from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import Enum
 from random import Random
-from typing import Iterable
 
-from topology_benchmark.core.probability.distribution import FiniteDistribution, WeightedValue
 from topology_benchmark.domains.surfaces.models import (
     EdgeRef,
     OrientedEdge,
-    SurfacePath,
     SurfacePresentation,
 )
-from topology_benchmark.domains.surfaces.models.utils.surface_representation import edges_connected
 from topology_benchmark.domains.surfaces.rendering.config import (
     CanvasConfig,
-    SurfaceVisualStyleConfig,
     PaletteConfig,
+    SurfaceRenderingConfig,
+    SurfaceVisualStyleConfig,
 )
-from topology_benchmark.domains.surfaces.rendering.config import SurfaceRenderingConfig
-from topology_benchmark.utils.planer_vector import Point
-from topology_benchmark.utils.planer_vector import quadratic
-from topology_benchmark.utils.planer_vector import unit
+from topology_benchmark.domains.surfaces.services import SurfaceAnalyzer
+from topology_benchmark.utils.planer_vector import Point, quadratic, unit
 
 
 class LineStyle(Enum):
@@ -106,8 +102,10 @@ class SurfaceDiagramPlanner:
     def __init__(
         self,
         config: SurfaceRenderingConfig,
+        analyzer: SurfaceAnalyzer,
     ) -> None:
         self._config = config
+        self._analyzer = analyzer
 
     def plan(self, surface: SurfacePresentation, rng: Random) -> DiagramPlan:
         canvas_config = self._config.canvas
@@ -117,12 +115,9 @@ class SurfaceDiagramPlanner:
         width = round(2 * canvas_config.margin_x + columns * canvas_config.cell_width)
         height = round(2 * canvas_config.margin_y + rows * canvas_config.cell_height)
 
-        styles_distribution = FiniteDistribution[SurfaceVisualStyleConfig](
-            tuple(WeightedValue(style, style.weight) for style in self._config.styles)
-        )
-        visual_style = styles_distribution.sample(rng)
+        visual_style = self._config.styles.sample(rng)
 
-        diagram_style = DiagramStyle(visual_style, rng.choice(visual_style.palettes))
+        diagram_style = DiagramStyle(visual_style, visual_style.palettes.sample(rng))
         layouts = self._get_polygon_views(canvas_config, diagram_style, columns, surface, rng)
         return DiagramPlan(
             width,
@@ -136,18 +131,24 @@ class SurfaceDiagramPlanner:
         surface: SurfacePresentation, edge: EdgeRef, boundary_pattern: LineStyle
     ) -> LineStyle:
         for gluing in surface.gluings:
-            if edge == gluing.first:
+            if edge == gluing.first_edge:
                 return (
-                    LineStyle.DOTTED if gluing.second.polygon != edge.polygon else LineStyle.SOLID
+                    LineStyle.DOTTED
+                    if gluing.second_edge.polygon_index != edge.polygon_index
+                    else LineStyle.SOLID
                 )
-            if edge == gluing.second:
-                return LineStyle.DOTTED if gluing.first.polygon != edge.polygon else LineStyle.SOLID
+            if edge == gluing.second_edge:
+                return (
+                    LineStyle.DOTTED
+                    if gluing.first_edge.polygon_index != edge.polygon_index
+                    else LineStyle.SOLID
+                )
         return boundary_pattern
 
     @staticmethod
     def _generate_styled_paths(
-        style: DiagramStyle, paths: tuple[SurfacePath, ...], rng: Random
-    ) -> Iterable[tuple[SurfacePath, PathStyle]]:
+        style: DiagramStyle, paths: tuple[tuple[OrientedEdge, ...], ...], rng: Random
+    ) -> Iterable[tuple[tuple[OrientedEdge, ...], PathStyle]]:
         limit = style.visual.arrows.path_count_limit
 
         return (
@@ -156,7 +157,7 @@ class SurfaceDiagramPlanner:
                 PathStyle(
                     color=rng.choice(style.palette.path_colors),
                     order_display=OrderDisplay.NUMBER_TAG
-                    if len(path.edges) > limit
+                    if len(path) > limit
                     else rng.choice((OrderDisplay.NUMBER_TAG, OrderDisplay.ARROW_COUNT)),
                 ),
             )
@@ -165,25 +166,26 @@ class SurfaceDiagramPlanner:
 
     @staticmethod
     def _collect_segments_by_polygon(
-        surface: SurfacePresentation, styled_paths: Iterable[tuple[SurfacePath, PathStyle]]
+        surface: SurfacePresentation,
+        styled_paths: Iterable[tuple[tuple[OrientedEdge, ...], PathStyle]],
     ) -> dict[int, list[tuple[_RawSegmentsGroup, PathStyle]]]:
         result: dict[int, list[tuple[_RawSegmentsGroup, PathStyle]]] = {}
 
         for path, style in styled_paths:
-            edges_tuple = tuple(path.edges)
             segment_index = 0
 
-            for polygon, group in itertools.groupby(edges_tuple, key=lambda e: e.edge.polygon):
+            for polygon, group in itertools.groupby(path, key=lambda e: e.edge.polygon):
                 edges_in_polygon = tuple(group)
                 segments: list[_RawPathSegment] = []
                 edges_in_segment = [edges_in_polygon[0]]
 
                 for edge_index in range(len(edges_in_polygon) - 1):
-                    if edges_connected(
-                        surface.polygons[polygon].sides,
-                        edges_in_polygon[edge_index],
-                        edges_in_polygon[edge_index + 1],
-                    ):
+                    first_edge = edges_in_polygon[edge_index]
+                    if (
+                        first_edge.edge.starting_vertex + (1 if first_edge.forward else -1)
+                    ) % surface.polygons[polygon].sides == edges_in_polygon[
+                        edge_index + 1
+                    ].edge.starting_vertex:
                         edges_in_segment.append(edges_in_polygon[edge_index + 1])
                         continue
                     segments.append(_RawPathSegment(tuple(edges_in_segment), segment_index))
@@ -206,8 +208,8 @@ class SurfaceDiagramPlanner:
         polygon_sides = len(vertices_vec)
 
         def key_selector(segment: _RawPathSegment) -> tuple[int, int]:
-            return segment.edges[0].edge.edge, (
-                segment.edges[-1].edge.edge + (1 if segment.edges[-1].forward else -1)
+            return segment.edges[0].edge.starting_vertex, (
+                segment.edges[-1].edge.starting_vertex + (1 if segment.edges[-1].forward else -1)
             ) % polygon_sides
 
         ordered = sorted(
@@ -281,15 +283,15 @@ class SurfaceDiagramPlanner:
 
             edge_line_style = (
                 LineStyle.SOLID
-                if gluing.first.polygon == gluing.second.polygon
+                if gluing.first_edge.polygon_index == gluing.second_edge.polygon_index
                 else LineStyle.DOTTED
             )
-            polygon_edges.setdefault(gluing.first.polygon, {})[gluing.first.edge] = EdgeView(
-                edge_line_style, label, first_orientation
-            )
-            polygon_edges.setdefault(gluing.second.polygon, {})[gluing.second.edge] = EdgeView(
-                edge_line_style, label, second_orientation
-            )
+            polygon_edges.setdefault(gluing.first_edge.polygon_index, {})[
+                gluing.second_edge.polygon_index
+            ] = EdgeView(edge_line_style, label, first_orientation)
+            polygon_edges.setdefault(gluing.first_edge.polygon_index, {})[
+                gluing.second_edge.polygon_index
+            ] = EdgeView(edge_line_style, label, second_orientation)
 
         for index, polygon in enumerate(surface.polygons):
             sides = polygon.sides
@@ -312,6 +314,15 @@ class SurfaceDiagramPlanner:
                 vertices_vec,
                 (segment for group, _ in styled_groups_in_polygon for segment in group),
             )
+
+            used = {
+                edge
+                for coefficients, _ in self._analyzer.h1_edge_generators(surface)
+                for edge, coefficient in enumerate(coefficients)
+                if coefficient
+            }
+            basis = self._analyzer.cellular_homology(surface).h1_basis
+            tuple((basis[edge], f"e{tag}") for tag, edge in enumerate(sorted(used), start=1))
 
             views.append(
                 PolygonView(
