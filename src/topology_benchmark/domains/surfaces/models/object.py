@@ -3,11 +3,7 @@ from bisect import bisect_right
 from attrs import field, frozen
 
 from topology_benchmark.core.validation import nonempty, number_range
-from topology_benchmark.domains.surfaces.models.fact import SurfaceQuotient
 from topology_benchmark.utils.disjoint_set_union import DisjointSetUnion
-from topology_benchmark.utils.disjoint_set_union import FrozenDisjointSetUnion
-from topology_benchmark.utils.disjoint_set_union import FrozenOrientedDisjointSetUnion
-from topology_benchmark.utils.disjoint_set_union import OrientedDisjointSetUnion
 
 
 @frozen
@@ -92,31 +88,6 @@ class SurfacePresentation:
             raise ValueError("edge references an unknown polygon")
         if not 0 <= edge.starting_vertex < self.polygons[edge.polygon_index].sides:
             raise ValueError("edge references an unknown polygon side")
-
-    @property
-    def quotient(self) -> SurfaceQuotient:
-        quotient_vertices = DisjointSetUnion(self.vertex_offsets[-1])
-        quotient_edges = OrientedDisjointSetUnion(sum(polygon.sides for polygon in self.polygons))
-        connected_components = DisjointSetUnion(len(self.polygons))
-        for gluing in self.gluings:
-            connected_components.union(
-                gluing.first_edge.polygon_index, gluing.second_edge.polygon_index
-            )
-            a0, a1 = self.native_edge_vertices(gluing.first_edge)
-            b0, b1 = self.native_edge_vertices(gluing.second_edge)
-            if gluing.same_direction:
-                quotient_vertices.union(a0, b0)
-                quotient_vertices.union(a1, b1)
-                quotient_edges.union(a0, b0, 1)
-            else:
-                quotient_vertices.union(a0, b1)
-                quotient_vertices.union(a1, b0)
-                quotient_edges.union(a0, b0, -1)
-        return SurfaceQuotient(
-            vertices=FrozenDisjointSetUnion.from_mutable(quotient_vertices),
-            edges=FrozenOrientedDisjointSetUnion.from_mutable(quotient_edges),
-            components=FrozenDisjointSetUnion.from_mutable(connected_components),
-        )
 
     @property
     def vertex_offsets(self) -> tuple[int, ...]:

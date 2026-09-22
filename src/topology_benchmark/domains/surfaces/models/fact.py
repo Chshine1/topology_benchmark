@@ -28,7 +28,9 @@ class ComponentFacts:
 @dataclass(frozen=True, slots=True)
 class SurfaceQuotient:
     vertices: FrozenDisjointSetUnion
+    vertex_representatives: tuple[int, ...]
     edges: FrozenOrientedDisjointSetUnion
+    edge_representatives: tuple[int, ...]
     components: FrozenDisjointSetUnion
 
 

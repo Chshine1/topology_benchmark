@@ -1,3 +1,7 @@
+from topology_benchmark.utils.disjoint_set_union import FrozenDisjointSetUnion
+from topology_benchmark.domains.surfaces.services.surface_quotient_analyzer import (
+    SurfaceQuotientAnalyzer,
+)
 from topology_benchmark.domains.surfaces import SurfacePresentation, EdgeGluing
 from topology_benchmark.domains.surfaces.models import SurfaceFacts, ComponentFacts
 from topology_benchmark.utils.disjoint_set_union import DisjointSetUnion
@@ -5,7 +9,8 @@ from topology_benchmark.utils.disjoint_set_union import DisjointSetUnion
 
 class SurfaceBasicTopologyAnalyzer:
     def analyze(self, surface: SurfacePresentation) -> SurfaceFacts:
-        quotient_vertices, _, connected_components = surface.quotient
+        quotient = SurfaceQuotientAnalyzer(surface).get_quotient()
+        quotient_vertices, connected_components = quotient.vertices, quotient.components
         polygon_indices_by_components: dict[int, list[int]] = {}
         for polygon_index in range(len(surface.polygons)):
             polygon_indices_by_components.setdefault(
@@ -31,7 +36,7 @@ class SurfaceBasicTopologyAnalyzer:
     def _analyze_component_facts(
         self,
         surface: SurfacePresentation,
-        quotient_vertices: DisjointSetUnion,
+        quotient_vertices: FrozenDisjointSetUnion,
         component_polygon_indices: tuple[int, ...],
     ) -> ComponentFacts:
         vertices = {
@@ -63,7 +68,7 @@ class SurfaceBasicTopologyAnalyzer:
     @staticmethod
     def _compute_boundary_count(
         surface: SurfacePresentation,
-        quotient_vertices: DisjointSetUnion,
+        quotient_vertices: FrozenDisjointSetUnion,
         unglued_edges: tuple,
     ) -> int:
         if len(unglued_edges) == 0:

@@ -1,3 +1,6 @@
+from topology_benchmark.domains.surfaces.services.surface_quotient_analyzer import (
+    SurfaceQuotientAnalyzer,
+)
 from collections import deque
 from itertools import groupby
 from itertools import tee, chain
@@ -22,25 +25,19 @@ class SurfaceHomologyAnalyzer:
     ) -> None:
         self._surface = surface
         self._surface_facts = basic_topology_analyzer.analyze(self._surface)
+        self._surface_quotient = SurfaceQuotientAnalyzer(self._surface).get_quotient()
 
     def compute_cellular_homology(self) -> CellularHomology:
-        quotient = self._surface.quotient
+        quotient = self._surface_quotient
 
-        vertex_representatives = sorted(
-            {quotient.vertices.find(vertex) for vertex in range(self._surface.vertex_offsets[-1])}
-        )
-        vertex_pos = {root: index for index, root in enumerate(vertex_representatives)}
+        pos_vertex = {root: index for index, root in enumerate(quotient.vertex_representatives)}
 
-        forest = DisjointSetUnion(len(vertex_representatives))
-
-        edge_representatives = sorted(
-            {quotient.edges.find(edge)[0] for edge in range(self._surface.vertex_offsets[-1])},
-        )
+        forest = DisjointSetUnion(len(quotient.vertex_representatives))
 
         chord_iter, tree_iter = tee(
             (
                 (
-                    forest.union(vertex_pos[start_vertex], vertex_pos[end_vertex]),
+                    forest.union(pos_vertex[start_vertex], pos_vertex[end_vertex]),
                     edge_rep,
                     start_vertex,
                     end_vertex,
@@ -48,7 +45,7 @@ class SurfaceHomologyAnalyzer:
                 for edge_rep, start_vertex, end_vertex in (
                     map(
                         self._compute_endpoints,
-                        edge_representatives,
+                        quotient.edge_representatives,
                     )
                 )
             )
@@ -56,7 +53,7 @@ class SurfaceHomologyAnalyzer:
 
         chords = tuple(chord for connected, chord, _, _ in chord_iter if not connected)
 
-        chord_pos = {chord: i for i, chord in enumerate(chords)}
+        pos_chord = {chord: i for i, chord in enumerate(chords)}
 
         columns = len(self._surface.polygons)
         partial_flat = [0] * (len(chords) * columns)
@@ -67,8 +64,8 @@ class SurfaceHomologyAnalyzer:
                 global_edge = base + s
                 rep, sign = quotient.edges.find(global_edge)
 
-                if rep in chord_pos:
-                    row = chord_pos[rep]
+                if rep in pos_chord:
+                    row = pos_chord[rep]
                     partial_flat[row * columns + col] = partial_flat[row * columns + col] + sign
 
         partial = IntegralMatrix(tuple(partial_flat), columns=columns)
@@ -76,7 +73,7 @@ class SurfaceHomologyAnalyzer:
         normalized, u, _ = smith_normal_decomposition(partial)
 
         projection, completion = self._compute_chord_cycle_correspondence(
-            edge_representatives, chords, self._build_generating_tree_adj(tree_iter)
+            quotient.edge_representatives, chords, self._build_generating_tree_adj(tree_iter)
         )
 
         return CellularHomology(
@@ -87,7 +84,7 @@ class SurfaceHomologyAnalyzer:
         )
 
     def _compute_endpoints(self, native_starting_vertex: int) -> tuple[int, int, int]:
-        quotient_vertices = self._surface.quotient.vertices
+        quotient_vertices = self._surface_quotient.vertices
         polygon_index, vertex = self._surface.inverse_native_vertex(native_starting_vertex)
         _, native_ending_vertex = self._surface.native_edge_vertices(EdgeRef(polygon_index, vertex))
         return (
@@ -157,7 +154,7 @@ class SurfaceHomologyAnalyzer:
 
     def _compute_chord_cycle_correspondence(
         self,
-        edge_representatives: list[int],
+        edge_representatives: tuple[int, ...],
         chords: tuple[int, ...],
         tree_adj: dict[int, tuple[tuple[int, int, int], ...]],
     ) -> tuple[IntegralMatrix, IntegralMatrix]:

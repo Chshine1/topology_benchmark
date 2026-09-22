@@ -1,3 +1,6 @@
+from topology_benchmark.domains.surfaces.services.surface_quotient_analyzer import (
+    SurfaceQuotientAnalyzer,
+)
 from typing import cast
 
 from topology_benchmark.domains.surfaces.models import (
@@ -36,6 +39,8 @@ class SurfaceAnalyzer:
     def get_path_homology_coefficients(
         self, surface: SurfacePresentation, path: tuple[OrientedEdge, ...]
     ) -> tuple[int, ...]:
+        quotient = SurfaceQuotientAnalyzer(surface).get_quotient()
+
         if not self.path_is_cycle(surface, path):
             raise ValueError("an open path has no homology class")
         homology = SurfaceHomologyAnalyzer(
@@ -44,14 +49,11 @@ class SurfaceAnalyzer:
 
         path_coordinate_flat = [0] * homology.chord_projection.columns
 
-        edge_representatives = sorted(
-            {surface.quotient.edges.find(edge)[0] for edge in range(surface.vertex_offsets[-1])},
-        )
-        pos_edge_reps = {rep: i for i, rep in enumerate(edge_representatives)}
+        pos_edge_reps = {rep: i for i, rep in enumerate(quotient.edge_representatives)}
         for edge in path:
             edge_rep, _ = surface.native_edge_vertices(edge.edge)
             pos = pos_edge_reps[edge_rep]
-            _, direction = surface.quotient.edges.find(pos)
+            _, direction = quotient.edges.find(pos)
             path_coordinate_flat[pos] += edge.forward * direction
 
         path_coordinate = IntegralMatrix.column_vector(path_coordinate_flat)
