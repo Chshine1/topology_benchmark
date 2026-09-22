@@ -1,98 +1,124 @@
-from topology_benchmark.domains.surfaces.services.surface_basic_topology_analyzer import (
-    SurfaceBasicTopologyAnalyzer,
-)
 from collections import deque
 from itertools import groupby
 from itertools import tee, chain
-from typing import cast
-
-from sympy import Matrix
-from sympy.polys.matrices.domainmatrix import DomainMatrix
-from sympy.polys.matrices.normalforms import smith_normal_decomp
+from typing import Iterator
 
 from topology_benchmark.domains.surfaces.models import (
     CellularHomology,
     EdgeRef,
     SurfacePresentation,
 )
-from topology_benchmark.domains.surfaces.models.fact import DimensionOneHomologyElement
+from topology_benchmark.domains.surfaces.services.surface_basic_topology_analyzer import (
+    SurfaceBasicTopologyAnalyzer,
+)
 from topology_benchmark.utils.disjoint_set_union import DisjointSetUnion
+from topology_benchmark.utils.integer_linear_algebra import IntegralMatrix
+from topology_benchmark.utils.integer_linear_algebra import smith_normal_decomposition
 
 
 class SurfaceHomologyAnalyzer:
-    def __init__(self, basic_topology_analyzer: SurfaceBasicTopologyAnalyzer) -> None:
-        self._basic_topology_analyzer = basic_topology_analyzer
+    def __init__(
+        self, surface: SurfacePresentation, basic_topology_analyzer: SurfaceBasicTopologyAnalyzer
+    ) -> None:
+        self._surface = surface
+        self._surface_facts = basic_topology_analyzer.analyze(self._surface)
 
-    def cellular_homology(self, surface: SurfacePresentation) -> CellularHomology:
-        facts = self._basic_topology_analyzer.analyze(surface)
-        quotient_vertices, quotient_edges, _ = surface.quotient
+    def compute_cellular_homology(self) -> CellularHomology:
+        quotient = self._surface.quotient
 
         vertex_representatives = sorted(
-            {quotient_vertices.find(vertex) for vertex in range(surface.vertex_offsets[-1])}
+            {quotient.vertices.find(vertex) for vertex in range(self._surface.vertex_offsets[-1])}
         )
-        inv_vertex = {root: index for index, root in enumerate(vertex_representatives)}
+        vertex_pos = {root: index for index, root in enumerate(vertex_representatives)}
 
         forest = DisjointSetUnion(len(vertex_representatives))
 
-        def compute_endpoints(native_starting_vertex: int) -> tuple[int, int, int]:
-            polygon_index, vertex = surface.inverse_native_vertex(native_starting_vertex)
-            _, native_ending_vertex = surface.native_edge_vertices(EdgeRef(polygon_index, vertex))
-            return (
-                native_starting_vertex,
-                quotient_vertices.find(native_starting_vertex),
-                quotient_vertices.find(native_ending_vertex),
-            )
-
-        edge_representatives = map(
-            compute_endpoints,
-            sorted(
-                {quotient_edges.find(edge)[0] for edge in range(surface.vertex_offsets[-1])},
-            ),
+        edge_representatives = sorted(
+            {quotient.edges.find(edge)[0] for edge in range(self._surface.vertex_offsets[-1])},
         )
 
-        tree_iter, chord_iter = tee(
+        chord_iter, tree_iter = tee(
             (
-                (forest.union(inv_vertex[start], inv_vertex[end]), representative, start, end)
-                for representative, start, end in edge_representatives
+                (
+                    forest.union(vertex_pos[start_vertex], vertex_pos[end_vertex]),
+                    edge_rep,
+                    start_vertex,
+                    end_vertex,
+                )
+                for edge_rep, start_vertex, end_vertex in (
+                    map(
+                        self._compute_endpoints,
+                        edge_representatives,
+                    )
+                )
             )
         )
-
-        def edge_adj_selector(
-            edge: int, start: int, end: int
-        ) -> tuple[tuple[int, tuple[int, int, int]], ...]:
-            return (start, (end, edge, 1)), (end, (start, edge, -1))
 
         chords = tuple(chord for connected, chord, _, _ in chord_iter if not connected)
 
         chord_pos = {chord: i for i, chord in enumerate(chords)}
 
-        partial = Matrix.zeros(len(chords), len(surface.polygons))
+        columns = len(self._surface.polygons)
+        partial_flat = [0] * (len(chords) * columns)
 
-        for col, polygon in enumerate(surface.polygons):
-            base = surface.vertex_offsets[col]
+        for col, polygon in enumerate(self._surface.polygons):
+            base = self._surface.vertex_offsets[col]
             for s in range(polygon.sides):
                 global_edge = base + s
-                rep, sign = quotient_edges.find(global_edge)
+                rep, sign = quotient.edges.find(global_edge)
 
                 if rep in chord_pos:
                     row = chord_pos[rep]
-                    partial[row, col] = partial[row, col] + sign
+                    partial_flat[row * columns + col] = partial_flat[row * columns + col] + sign
 
-        normalized, u, v = smith_normal_decomp(partial)
+        partial = IntegralMatrix(tuple(partial_flat), columns=columns)
 
-        n, m = partial.rows, partial.cols
-        u_inv = u.inv()
+        normalized, u, _ = smith_normal_decomposition(partial)
 
+        projection, completion = self._compute_chord_cycle_correspondence(
+            edge_representatives, chords, self._build_generating_tree_adj(tree_iter)
+        )
+
+        return CellularHomology(
+            normalized_partial2=normalized,
+            chord_base_change=u,
+            chord_projection=projection,
+            cycle_completion=completion,
+        )
+
+    def _compute_endpoints(self, native_starting_vertex: int) -> tuple[int, int, int]:
+        quotient_vertices = self._surface.quotient.vertices
+        polygon_index, vertex = self._surface.inverse_native_vertex(native_starting_vertex)
+        _, native_ending_vertex = self._surface.native_edge_vertices(EdgeRef(polygon_index, vertex))
+        return (
+            native_starting_vertex,
+            quotient_vertices.find(native_starting_vertex),
+            quotient_vertices.find(native_ending_vertex),
+        )
+
+    @staticmethod
+    def _build_generating_tree_adj(
+        tree_iter: Iterator[tuple[bool, int, int, int]],
+    ) -> dict[int, tuple[tuple[int, int, int], ...]]:
         def key_selector(pair: tuple[int, tuple[int, int, int]]) -> int:
             return pair[0]
 
-        tree_adj = dict(
-            groupby(
+        def select_edge_adj(
+            edge_rep: int, start_vertex: int, end_vertex: int
+        ) -> tuple[tuple[int, tuple[int, int, int]], ...]:
+            return (start_vertex, (end_vertex, 1, edge_rep)), (
+                end_vertex,
+                (start_vertex, -1, edge_rep),
+            )
+
+        return {
+            vertex: tuple(edge for _, edge in edges)
+            for vertex, edges in groupby(
                 sorted(
                     chain.from_iterable(
                         (
-                            edge_adj_selector(edge, start, end)
-                            for connected, edge, start, end in tree_iter
+                            select_edge_adj(edge_rep, start_vertex, end_vertex)
+                            for connected, edge_rep, start_vertex, end_vertex in tree_iter
                             if connected
                         )
                     ),
@@ -100,86 +126,64 @@ class SurfaceHomologyAnalyzer:
                 ),
                 key=key_selector,
             )
-        )
+        }
 
-        def find_reversed_tree_path(start: int, end: int):
-            parent: dict[int, tuple[int | None, tuple[int, int] | None]] = {
-                start: (None, None)
-            }  # vertex -> (prev_vertex, (edge_rep, sign))
-            queue = deque([start])
-            while len(queue) > 0:
-                u = queue.popleft()
-                if u == end:
-                    break
-                for _, (v, rep, sign) in tree_adj[u]:
-                    if v not in parent:
-                        parent[v] = (u, (rep, sign))
-                        queue.append(v)
+    @staticmethod
+    def _find_reversed_tree_path(
+        tree_adj: dict[int, tuple[tuple[int, int, int], ...]], start_vertex: int, end_vertex: int
+    ) -> list[tuple[int, int]]:
+        parent: dict[int, tuple[int | None, tuple[int, int] | None]] = {
+            start_vertex: (None, None)
+        }  # vertex -> (prev_vertex, (edge_rep, sign))
+        queue = deque([start_vertex])
+        while len(queue) > 0:
+            u = queue.popleft()
+            if u == end_vertex:
+                break
+            for v, sign, edge_rep in tree_adj[u]:
+                if v not in parent:
+                    parent[v] = (u, (edge_rep, sign))
+                    queue.append(v)
 
-            path: list[tuple[int, int]] = []
-            cur = end
-            while cur != start:
-                prev, edge = parent[cur]
-                assert prev is not None and edge is not None
-                rep, sign = edge
-                path.append((rep, -sign))
-                cur = prev
-            path.reverse()
-            return path
+        path: list[tuple[int, int]] = []
+        cur = end_vertex
+        while cur != start_vertex:
+            prev, edge = parent[cur]
+            assert prev is not None and edge is not None
+            edge_rep, sign = edge
+            path.append((edge_rep, -sign))
+            cur = prev
+        return path
 
-        def get_cycle_for_chord(
-            chord_with_coefficient: tuple[int, int],
-        ) -> tuple[tuple[int, int], ...]:
-            chord, coefficient = chord_with_coefficient
-            if coefficient == 0:
-                return ()
-            _, start, end = compute_endpoints(chord)
-
-            def scale_by_coefficient(item: tuple[int, int]) -> tuple[int, int]:
-                return item[0], coefficient * item[1]
-
-            return tuple(
-                chain(
-                    map(scale_by_coefficient, find_reversed_tree_path(start, end)),
-                    ((chord, coefficient),),
+    def _compute_chord_cycle_correspondence(
+        self,
+        edge_representatives: list[int],
+        chords: tuple[int, ...],
+        tree_adj: dict[int, tuple[tuple[int, int, int], ...]],
+    ) -> tuple[IntegralMatrix, IntegralMatrix]:
+        pos_edge_representatives = {rep: i for i, rep in enumerate(edge_representatives)}
+        completion_rows, completion_columns = len(pos_edge_representatives), len(chords)
+        completion_flat = [0] * (completion_rows * completion_columns)
+        for i in range(completion_columns):
+            chord = chords[i]
+            _, start_vertex, end_vertex = self._compute_endpoints(chord)
+            for edge, coefficient in chain(
+                self._find_reversed_tree_path(tree_adj, start_vertex, end_vertex),
+                ((chord, 1),),
+            ):
+                completion_flat[pos_edge_representatives[edge] * completion_columns + i] = (
+                    coefficient
                 )
-            )
 
-        h1_basis: list[DimensionOneHomologyElement] = []
+        projection_flat = [0] * (completion_columns * completion_rows)
+        pos_chords = {chord: i for i, chord in enumerate(chords)}
+        for i in range(completion_rows):
+            edge_rep = edge_representatives[i]
+            pos_chord = pos_chords.get(edge_rep, None)
+            if pos_chord is not None:
+                projection_flat[pos_chord * completion_rows + i] = 1
 
-        for i in range(n):
-            d = 0
-            if i < min(normalized.shape):
-                d = abs(int(normalized.getitem_sympy(i, i)))
-            if d == 1:
-                continue
-            chord_coordinates: list[int] = cast(DomainMatrix, u_inv[:, i]).to_list_flat()
-
-            def key_sel(pair: tuple[int, int]) -> int:
-                return pair[0]
-
-            coefficients = tuple(
-                (coefficient, EdgeRef(*surface.inverse_native_vertex(edge)))
-                for edge, group in groupby(
-                    sorted(
-                        chain.from_iterable(
-                            map(get_cycle_for_chord, zip(chords, chord_coordinates))
-                        ),
-                        key=key_sel,
-                    ),
-                    key=key_sel,
-                )
-                if (coefficient := sum(v for _, v in group)) != 0
-            )
-
-            h1_basis.append(
-                DimensionOneHomologyElement(
-                    edges_representative=coefficients, order=d if d > 1 else None
-                )
-            )
-
-        return CellularHomology(
-            len(facts.components),
-            tuple(h1_basis),
-            sum(c.orientable and c.boundary_count == 0 for c in facts.components),
+        return (
+            IntegralMatrix(tuple(projection_flat), columns=completion_rows),
+            IntegralMatrix(tuple(completion_flat), columns=completion_columns),
         )

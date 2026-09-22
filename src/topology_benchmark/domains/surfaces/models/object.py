@@ -1,11 +1,13 @@
 from bisect import bisect_right
 
-from topology_benchmark.utils.disjoint_set_union import OrientedDisjointSetUnion
-from functools import cached_property
 from attrs import field, frozen
 
 from topology_benchmark.core.validation import nonempty, number_range
+from topology_benchmark.domains.surfaces.models.fact import SurfaceQuotient
 from topology_benchmark.utils.disjoint_set_union import DisjointSetUnion
+from topology_benchmark.utils.disjoint_set_union import FrozenDisjointSetUnion
+from topology_benchmark.utils.disjoint_set_union import FrozenOrientedDisjointSetUnion
+from topology_benchmark.utils.disjoint_set_union import OrientedDisjointSetUnion
 
 
 @frozen
@@ -91,8 +93,8 @@ class SurfacePresentation:
         if not 0 <= edge.starting_vertex < self.polygons[edge.polygon_index].sides:
             raise ValueError("edge references an unknown polygon side")
 
-    @cached_property
-    def quotient(self) -> tuple[DisjointSetUnion, OrientedDisjointSetUnion, DisjointSetUnion]:
+    @property
+    def quotient(self) -> SurfaceQuotient:
         quotient_vertices = DisjointSetUnion(self.vertex_offsets[-1])
         quotient_edges = OrientedDisjointSetUnion(sum(polygon.sides for polygon in self.polygons))
         connected_components = DisjointSetUnion(len(self.polygons))
@@ -110,9 +112,13 @@ class SurfacePresentation:
                 quotient_vertices.union(a0, b1)
                 quotient_vertices.union(a1, b0)
                 quotient_edges.union(a0, b0, -1)
-        return quotient_vertices, quotient_edges, connected_components
+        return SurfaceQuotient(
+            vertices=FrozenDisjointSetUnion.from_mutable(quotient_vertices),
+            edges=FrozenOrientedDisjointSetUnion.from_mutable(quotient_edges),
+            components=FrozenDisjointSetUnion.from_mutable(connected_components),
+        )
 
-    @cached_property
+    @property
     def vertex_offsets(self) -> tuple[int, ...]:
         """Return offsets mapping ``(polygon, vertex)`` to one global vertex index."""
         result = [0]
@@ -159,7 +165,7 @@ class SurfacePresentation:
         vertex = native_start if start == directed.forward else native_end
         return quotient_vertices[vertex]
 
-    @cached_property
+    @property
     def unglued_edges(self) -> tuple[EdgeRef, ...]:
         glued = {
             edge for gluing in self.gluings for edge in (gluing.first_edge, gluing.second_edge)

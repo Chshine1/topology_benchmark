@@ -1,5 +1,8 @@
 from dataclasses import dataclass
 
+from topology_benchmark.utils.disjoint_set_union import FrozenDisjointSetUnion
+from topology_benchmark.utils.disjoint_set_union import FrozenOrientedDisjointSetUnion
+from topology_benchmark.utils.integer_linear_algebra import IntegralMatrix
 from .object import EdgeRef
 
 
@@ -23,6 +26,13 @@ class ComponentFacts:
 
 
 @dataclass(frozen=True, slots=True)
+class SurfaceQuotient:
+    vertices: FrozenDisjointSetUnion
+    edges: FrozenOrientedDisjointSetUnion
+    components: FrozenDisjointSetUnion
+
+
+@dataclass(frozen=True, slots=True)
 class SurfaceFacts:
     components: tuple[ComponentFacts, ...]
 
@@ -43,6 +53,7 @@ class DimensionOneHomologyElement:
 
 @dataclass(frozen=True, slots=True)
 class CellularHomology:
-    h0_rank: int
-    h1_basis: tuple[DimensionOneHomologyElement, ...]
-    h2_rank: int
+    normalized_partial2: IntegralMatrix
+    chord_base_change: IntegralMatrix
+    chord_projection: IntegralMatrix
+    cycle_completion: IntegralMatrix

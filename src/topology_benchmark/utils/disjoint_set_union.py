@@ -1,3 +1,6 @@
+from dataclasses import dataclass
+
+
 class DisjointSetUnion:
     def __init__(self, size: int) -> None:
         if size < 0:
@@ -71,3 +74,71 @@ class OrientedDisjointSetUnion:
             self._weight[root_f] = link_weight
             self._rank[root_s] += 1
         return True
+
+
+@dataclass(frozen=True, slots=True)
+class FrozenDisjointSetUnion:
+    _parent: tuple[int, ...]
+
+    @classmethod
+    def from_mutable(cls, dsu: DisjointSetUnion) -> FrozenDisjointSetUnion:
+        # noinspection protected-member
+        parent = list(dsu._parent)
+        n = len(parent)
+        compressed = [0] * n
+        for i in range(n):
+            root = i
+            while parent[root] != root:
+                root = parent[root]
+            compressed[i] = root
+        return cls(tuple(compressed))
+
+    def find(self, item: int) -> int:
+        while self._parent[item] != item:
+            item = self._parent[item]
+        return item
+
+    def __len__(self) -> int:
+        return len(self._parent)
+
+
+@dataclass(frozen=True, slots=True)
+class FrozenOrientedDisjointSetUnion:
+    _parent: tuple[int, ...]
+    _weight: tuple[int, ...]
+
+    @classmethod
+    def from_mutable(
+        cls,
+        dsu: OrientedDisjointSetUnion,
+    ) -> FrozenOrientedDisjointSetUnion:
+        # noinspection protected-member
+        parent = list(dsu._parent)
+        # noinspection protected-member
+        weight = list(dsu._weight)
+        n = len(parent)
+
+        new_parent = [0] * n
+        new_weight = [1] * n
+
+        for i in range(n):
+            root = i
+            total = 1
+            while parent[root] != root:
+                total *= weight[root]
+                root = parent[root]
+            new_parent[i] = root
+            new_weight[i] = total
+
+        return cls(tuple(new_parent), tuple(new_weight))
+
+    def find(self, item: int) -> tuple[int, int]:
+        parent = self._parent
+        weight = self._weight
+
+        root = item
+        total = 1
+        while parent[root] != root:
+            total *= weight[root]
+            root = parent[root]
+        return root, total
